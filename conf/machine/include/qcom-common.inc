@@ -46,3 +46,16 @@ EFI_PROVIDER = "systemd-boot"
 
 # Unified Kernel Image (UKI) name
 EFI_LINUX_IMG ?= "linux-${MACHINE}.efi"
+
+# Variables to generate ITS file
+UBOOT_CONFIG ??= "qcom"
+UBOOT_CONFIG[qcom] ?= "qcom_defconfig"
+
+# Pass additional options to mkimage command
+UBOOT_MKIMAGE_EXTRA_OPTS = "-E -B 0x0001000"
+
+# Set default configuration
+FIT_CONF_DEFAULT_DTB = "1"
+
+# Set hash algorithm
+FIT_HASH_ALG = ""
