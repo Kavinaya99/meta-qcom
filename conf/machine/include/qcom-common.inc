@@ -59,3 +59,16 @@ EFI_LINUX_IMG_DTB ?= ""
 
 # Place dtb at EFIDTDIR to seamlessly package
 KERNEL_DTBDEST = "${EFI_DTB_DIR}"
+
+# Variables to generate ITS file
+UBOOT_CONFIG ??= "qcom"
+UBOOT_CONFIG[qcom] ?= "qcom_defconfig"
+
+# Pass additional options to mkimage command
+UBOOT_MKIMAGE_EXTRA_OPTS = "-E -B 0x0001000"
+
+# Set default configuration
+FIT_CONF_DEFAULT_DTB = "1"
+
+# Set hash algorithm
+FIT_HASH_ALG = ""

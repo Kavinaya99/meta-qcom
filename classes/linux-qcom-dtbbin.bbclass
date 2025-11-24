@@ -4,13 +4,20 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 #
 
-DTBBIN_DEPLOYDIR = "${WORKDIR}/qcom_dtbbin_deploy-${PN}"
-DTBBIN_SIZE ?= "4096"
+inherit dtb-fit-image
 
-do_qcom_dtbbin_deploy[depends] += "dosfstools-native:do_populate_sysroot mtools-native:do_populate_sysroot"
+DTBBIN_DEPLOYDIR = "${WORKDIR}/qcom_dtbbin_deploy-${PN}"
+DTBBIN_SIZE ?= "65536"
+FITIMAGE_PATH = "${DEPLOY_DIR_IMAGE}/fitImage"
+
+do_qcom_dtbbin_deploy[depends] += "dosfstools-native:do_populate_sysroot mtools-native:do_populate_sysroot "
 do_qcom_dtbbin_deploy[cleandirs] = "${DTBBIN_DEPLOYDIR}"
 do_qcom_dtbbin_deploy() {
     for dtbf in ${KERNEL_DEVICETREE}; do
+        case "$dtbf" in
+            *.dtb) ;;
+            *) continue ;;
+        esac
         bbdebug 1 " combining: $dtbf"
         dtb=`normalize_dtb "$dtbf"`
         dtb_ext=${dtb##*.}
@@ -21,8 +28,12 @@ do_qcom_dtbbin_deploy() {
         mcopy -i "${DTBBIN_DEPLOYDIR}/dtb-${dtb_base_name}-image.vfat" -vsmpQ ${DTBBIN_DEPLOYDIR}/$dtb_base_name/* ::/
         rm -rf ${DTBBIN_DEPLOYDIR}/$dtb_base_name
     done
+    if [ -f "${FITIMAGE_PATH}" ]; then
+        mkfs.vfat -S ${QCOM_VFAT_SECTOR_SIZE} -C ${DTBBIN_DEPLOYDIR}/multi-dtb.vfat ${DTBBIN_SIZE}
+        mcopy -i "${DTBBIN_DEPLOYDIR}/multi-dtb.vfat" -vsmpQ ${FITIMAGE_PATH} ::/qclinux_fit.img
+    fi
 }
-addtask qcom_dtbbin_deploy after do_populate_sysroot do_packagedata before do_deploy
+addtask qcom_dtbbin_deploy after do_populate_sysroot do_packagedata do_deploy do_deploy_qcom_fitimage before do_build
 
 # Setup sstate, see deploy.bbclass
 SSTATETASKS += "do_qcom_dtbbin_deploy"
