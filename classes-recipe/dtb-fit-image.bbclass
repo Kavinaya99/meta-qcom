@@ -1,3 +1,4 @@
+
 inherit kernel-arch
 
 require conf/image-fitimage.conf
@@ -15,6 +16,7 @@ QCOMFIT_DEPLOYDIR = "${WORKDIR}/qcom_fitimage_deploy-${PN}"
 
 do_generate_qcom_fitimage[depends] += "qcom-dtb-metadata:do_deploy"
 do_generate_qcom_fitimage[cleandirs] += "${QCOMFIT_DEPLOYDIR}"
+
 python do_generate_qcom_fitimage() {
     import sys, os, shutil, re
     import oe.types
@@ -39,6 +41,7 @@ python do_generate_qcom_fitimage() {
         d.getVar("FIT_ADDRESS_CELLS"),
         d.getVar("FIT_CONF_PREFIX"),
         d.getVar("MKIMAGE"),
+        datastore=d,
     )
 
     root_node.set_extra_opts(d.getVar("FIT_DTB_MKIMAGE_EXTRA_OPTS") or "")
@@ -47,7 +50,7 @@ python do_generate_qcom_fitimage() {
     kernel_devicetree = d.getVar('KERNEL_DEVICETREE') or ""
     kernel_devicetree = ('qcom-metadata.dtb ' + kernel_devicetree).strip()
 
-    deploy_dir_image = d.getVar('DEPLOY_DIR_IMAGE') 
+    deploy_dir_image = d.getVar('DEPLOY_DIR_IMAGE')
     dtb_dir = os.path.join(d.getVar('B'), "arch", d.getVar('ARCH'), "boot", "dts", "qcom")
     qcom_meta_src = os.path.join(deploy_dir_image, 'qcom-metadata.dtb')
     qcom_meta_dst = os.path.join(dtb_dir, 'qcom-metadata.dtb')
@@ -59,9 +62,9 @@ python do_generate_qcom_fitimage() {
         dtb_name = os.path.basename(dtb)
         dtb_base = os.path.splitext(dtb_name)[0]
         compatible = d.getVarFlag("FIT_DTB_COMPATIBLE", dtb_base) or ""
-        dtb_path = os.path.join(dtb_dir, f"{dtb_base}.dtb")
-        if not compatible:
-            bb.warn(f"FIT_DTB_COMPATIBLE[{dtb_base}] is not set. ")
+        dtb_path = os.path.join(dtb_dir, dtb_name)
+        if not compatible and dtb_name.endswith(".dtb"):
+            bb.warn(f"FIT_DTB_COMPATIBLE[{dtb_base}] is not set.")
         root_node.fitimage_emit_section_dtb(
             dtb_name, dtb_path,
             False,
@@ -74,20 +77,14 @@ python do_generate_qcom_fitimage() {
 
     root_node.write_its_file(itsfile)
 
-    # Generate custom ITS file
+    # Replace type for qcom metadata node
     with open(itsfile, 'r') as f:
         content = f.read()
-
-    # Replace type for qcom metadata node
     content = re.sub(
         r'(fdt-qcom-metadata\.dtb\s*\{[^}]*?)type\s*=\s*"flat_dt";',
         r'\1type = "qcom_metadata";',
         content, flags=re.DOTALL
     )
-
-    # Remove conf-0 entry which corresponds to fdt-0
-    content = re.sub(r'conf-0\s*\{[^}]*\};', '', content, flags=re.DOTALL)
-
     with open(itsfile, 'w') as f:
         f.write(content)
 
