@@ -13,6 +13,10 @@ do_qcom_dtbbin_deploy[depends] += "dosfstools-native:do_populate_sysroot mtools-
 do_qcom_dtbbin_deploy[cleandirs] = "${DTBBIN_DEPLOYDIR}"
 do_qcom_dtbbin_deploy() {
     for dtbf in ${KERNEL_DEVICETREE}; do
+        case "$dtbf" in
+            *.dtb) ;;
+            *) continue ;;
+        esac
         bbdebug 1 " combining: $dtbf"
         dtb=`normalize_dtb "$dtbf"`
         dtb_ext=${dtb##*.}
