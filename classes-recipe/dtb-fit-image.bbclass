@@ -42,6 +42,7 @@ python do_generate_qcom_fitimage() {
         d.getVar("FIT_ADDRESS_CELLS"),
         d.getVar("FIT_CONF_PREFIX"),
         d.getVar("MKIMAGE"),
+        datastore=d
     )
 
     root_node.set_extra_opts(d.getVar("FIT_DTB_MKIMAGE_EXTRA_OPTS") or "")
@@ -58,11 +59,11 @@ python do_generate_qcom_fitimage() {
 
     for dtb in kernel_devicetree.split():
         dtb_name = os.path.basename(dtb)
-        dtb_base = os.path.splitext(dtb_name)[0]
+        dtb_base, dtb_ext = os.path.splitext(dtb_name)
         compatible = d.getVarFlag("FIT_DTB_COMPATIBLE", dtb_base) or ""
-        dtb_path = os.path.join(dtb_dir, f"{dtb_base}.dtb")
+        dtb_path = os.path.join(dtb_dir, f"{dtb_base}{dtb_ext}")
         if not compatible and dtb_name != "qcom-metadata.dtb":
-            bb.fatal(f"FIT_DTB_COMPATIBLE[{dtb_base}] is not set. ")
+            bb.warn(f"FIT_DTB_COMPATIBLE[{dtb_base}] is not set. ")
         root_node.fitimage_emit_section_dtb(
             dtb_name, dtb_path,
             compatible_str=compatible,
