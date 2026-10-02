@@ -227,6 +227,14 @@ create_qcomflash_pkg() {
         install -m 0644 "${DEPLOY_DIR_IMAGE}/abl2esp-${ABL_SIGNATURE_VERSION}.elf" .
     fi
 
+    #u-boot bins
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/boot_fit.img" .
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/u-boot-spl.mbn" .
+
+    # Temporary hacks for initial bring up (which will not be merged at all)
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/optee-shikra/tee-raw.bin" "${DEPLOY_DIR_IMAGE}/"
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/trusted-firmware-a-qcom-shikra/bl31.bin" "${DEPLOY_DIR_IMAGE}/"
+
     # capsule image
     if [ -n "${QCOM_CAPSULE_FIRMWARE}" ] && \
             [ -f "${DEPLOY_DIR_IMAGE}/${QCOM_CAPSULE_FIRMWARE}.cap" ]; then

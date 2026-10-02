@@ -1,0 +1,313 @@
+From 8cfad6c401af32d6802479de2eba4cc6e52ceed4 Mon Sep 17 00:00:00 2001
+From: Harshal Dev <harshal.dev@oss.qualcomm.com>
+Date: Sun, 11 Oct 2026 16:17:51 +0530
+Subject: [PATCH 01/10] core: pta: qcom: pas: Allow fw_base init for
+ non-relocatable image.
+
+Allow fw_base init for non-relocatable image.
+
+Upstream-Status: Pending
+Signed-off-by: Harshal Dev <harshal.dev@oss.qualcomm.com>
+---
+ core/pta/qcom/pas/pas_core.c              |  13 +-
+ core/pta/qcom/pas/platform/platform_pas.h |   3 +-
+ core/pta/qcom/pas/pta_qcom_pas.c          |   5 +-
+ ta/qcom_pas/src/qcom_pas.c                | 205 +++++++++++++++++++++-
+ 4 files changed, 220 insertions(+), 6 deletions(-)
+
+diff --git a/core/pta/qcom/pas/pas_core.c b/core/pta/qcom/pas/pas_core.c
+index 5f801f585..3d646306b 100644
+--- a/core/pta/qcom/pas/pas_core.c
++++ b/core/pta/qcom/pas/pas_core.c
+@@ -38,11 +38,20 @@ TEE_Result pas_platform_capabilities(uint32_t pas_id __unused)
+ 	return TEE_SUCCESS;
+ }
+ 
+-TEE_Result pas_platform_init_image(uint32_t pas_id)
++TEE_Result pas_platform_init_image(uint32_t pas_id, uint32_t fw_size,
++				   uint32_t fw_base_low, uint32_t fw_base_high)
+ {
+-	if (!qcom_pas_lookup(pas_id))
++	struct qcom_pas_subsys *subsys = qcom_pas_lookup(pas_id);
++	struct qcom_pas_data *data = NULL;
++
++	if (!subsys)
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 
++	data = &subsys->data;
++	data->fw_size = fw_size;
++	data->fw_base = fw_base_low;
++	data->fw_base |= SHIFT_U64(fw_base_high, 32);
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/pta/qcom/pas/platform/platform_pas.h b/core/pta/qcom/pas/platform/platform_pas.h
+index a8693152e..721fc6281 100644
+--- a/core/pta/qcom/pas/platform/platform_pas.h
++++ b/core/pta/qcom/pas/platform/platform_pas.h
+@@ -35,7 +35,8 @@ TEE_Result pas_platform_set_remote_state(uint32_t pas_id, uint32_t state);
+ TEE_Result pas_platform_auth_and_reset(uint32_t pas_id);
+ TEE_Result pas_platform_is_supported(uint32_t pas_id);
+ TEE_Result pas_platform_capabilities(uint32_t pas_id);
+-TEE_Result pas_platform_init_image(uint32_t pas_id);
++TEE_Result pas_platform_init_image(uint32_t pas_id, uint32_t fw_size,
++				   uint32_t fw_base_low, uint32_t fw_base_high);
+ TEE_Result pas_platform_shutdown(uint32_t pas_id);
+ 
+ #ifdef CFG_QCOM_PAS_AUTH
+diff --git a/core/pta/qcom/pas/pta_qcom_pas.c b/core/pta/qcom/pas/pta_qcom_pas.c
+index 595e978d4..c567a30a0 100644
+--- a/core/pta/qcom/pas/pta_qcom_pas.c
++++ b/core/pta/qcom/pas/pta_qcom_pas.c
+@@ -51,7 +51,7 @@ static TEE_Result qcom_pas_init_image(uint32_t pt,
+ 				      TEE_Param params[TEE_NUM_PARAMS])
+ {
+ 	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
+-						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
+ 						TEE_PARAM_TYPE_NONE,
+ 						TEE_PARAM_TYPE_NONE);
+ 
+@@ -59,7 +59,8 @@ static TEE_Result qcom_pas_init_image(uint32_t pt,
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 	DMSG("invoked with pas_id: %d", params[0].value.a);
+ 
+-	return pas_platform_init_image(params[0].value.a);
++	return pas_platform_init_image(params[0].value.a, params[0].value.b,
++				       params[1].value.a, params[1].value.b);
+ }
+ 
+ static TEE_Result qcom_pas_mem_setup(uint32_t pt,
+diff --git a/ta/qcom_pas/src/qcom_pas.c b/ta/qcom_pas/src/qcom_pas.c
+index 36e32dbea..52ac352ee 100644
+--- a/ta/qcom_pas/src/qcom_pas.c
++++ b/ta/qcom_pas/src/qcom_pas.c
+@@ -6,6 +6,8 @@
+ #include <auth/pas_auth.h>
+ #include <auth/pas_meta.h>
+ #include <auth/pas_fuse.h>
++#include <elf32.h>
++#include <elf64.h>
+ #include <pta_qcom_pas.h>
+ #include <ta_qcom_pas.h>
+ #include <tee_internal_api.h>
+@@ -16,13 +18,214 @@
+ static size_t session_refcount;
+ static TEE_TASessionHandle pta_session;
+ 
++/* Segment type lives in bits 24:26 of p_flags; 0x2 marks the hash segment. */
++#define MBN_PT_FLAG_TYPE_MASK		0x07000000U
++#define MBN_PT_FLAG_HASH_TYPE_MASK	0x02000000U
++#define PAS_ALIGN_4K			4096ULL
++#define PT_LOAD                         1
++#define LOW_ADDR_MASK                   0x00000000ffffffffUL
++#define HIGH_ADDR_SHIFT                 32UL
++
++
++static bool pas_mbn_phdr_loadable(uint32_t p_type, uint32_t p_flags,
++				  uint64_t p_memsz)
++{
++	if (p_type != PT_LOAD)
++		return false;
++
++	if ((p_flags & MBN_PT_FLAG_TYPE_MASK) == MBN_PT_FLAG_HASH_TYPE_MASK)
++		return false;
++
++	if (!p_memsz)
++		return false;
++
++	return true;
++}
++
++static TEE_Result pas_mbn_scan_phdrs_32(uint8_t *metadata,
++					size_t metadata_size,
++					Elf32_Ehdr *ehdr,
++					uint64_t *min_addr,
++					uint64_t *max_addr)
++{
++	size_t phdr_table_size = 0;
++	size_t phdr_table_end = 0;
++	size_t i = 0;
++	bool found = false;
++
++	if (ehdr->e_phentsize != sizeof(Elf32_Phdr) || !ehdr->e_phnum)
++		return TEE_ERROR_BAD_FORMAT;
++
++	if (MUL_OVERFLOW((size_t)ehdr->e_phnum, sizeof(Elf32_Phdr),
++			 &phdr_table_size) ||
++	    ADD_OVERFLOW((size_t)ehdr->e_phoff, phdr_table_size,
++			 &phdr_table_end) ||
++	    phdr_table_end > metadata_size)
++		return TEE_ERROR_BAD_FORMAT;
++
++	for (i = 0; i < ehdr->e_phnum; i++) {
++		Elf32_Phdr *phdr = (void *)(metadata + ehdr->e_phoff +
++					    i * sizeof(*phdr));
++		uint64_t start = phdr->p_paddr;
++		uint64_t end = 0;
++		uint64_t aligned_end = 0;
++
++		if (!pas_mbn_phdr_loadable(phdr->p_type, phdr->p_flags,
++					   phdr->p_memsz))
++			continue;
++
++		if (ADD_OVERFLOW(start, (uint64_t)phdr->p_memsz, &end) ||
++		    ADD_OVERFLOW(end, PAS_ALIGN_4K - 1, &aligned_end))
++			return TEE_ERROR_BAD_FORMAT;
++
++		aligned_end &= ~(PAS_ALIGN_4K - 1);
++
++		if (start < *min_addr)
++			*min_addr = start;
++		if (aligned_end > *max_addr)
++			*max_addr = aligned_end;
++
++		found = true;
++	}
++
++	return found ? TEE_SUCCESS : TEE_ERROR_BAD_FORMAT;
++}
++
++static TEE_Result pas_mbn_scan_phdrs_64(uint8_t *metadata,
++					size_t metadata_size,
++					Elf64_Ehdr *ehdr,
++					uint64_t *min_addr,
++					uint64_t *max_addr)
++{
++	size_t phdr_table_size = 0;
++	size_t phdr_table_end = 0;
++	size_t i = 0;
++	bool found = false;
++
++	if (ehdr->e_phentsize != sizeof(Elf64_Phdr) || !ehdr->e_phnum)
++		return TEE_ERROR_BAD_FORMAT;
++
++	if (MUL_OVERFLOW((size_t)ehdr->e_phnum, sizeof(Elf64_Phdr),
++			 &phdr_table_size) ||
++	    ADD_OVERFLOW((size_t)ehdr->e_phoff, phdr_table_size,
++			 &phdr_table_end) ||
++	    phdr_table_end > metadata_size)
++		return TEE_ERROR_BAD_FORMAT;
++
++	for (i = 0; i < ehdr->e_phnum; i++) {
++		Elf64_Phdr *phdr = (void *)(metadata + ehdr->e_phoff +
++					    i * sizeof(*phdr));
++		uint64_t start = phdr->p_paddr;
++		uint64_t end = 0;
++		uint64_t aligned_end = 0;
++
++		if (!pas_mbn_phdr_loadable(phdr->p_type, phdr->p_flags,
++					   phdr->p_memsz))
++			continue;
++
++		if (ADD_OVERFLOW(start, phdr->p_memsz, &end) ||
++		    ADD_OVERFLOW(end, PAS_ALIGN_4K - 1, &aligned_end))
++			return TEE_ERROR_BAD_FORMAT;
++
++		aligned_end &= ~(PAS_ALIGN_4K - 1);
++
++		if (start < *min_addr)
++			*min_addr = start;
++		if (aligned_end > *max_addr)
++			*max_addr = aligned_end;
++
++		found = true;
++	}
++
++	return found ? TEE_SUCCESS : TEE_ERROR_BAD_FORMAT;
++}
++
++static TEE_Result pas_get_fw_min_max_addr(uint8_t *metadata,
++					  size_t metadata_size,
++					  uint64_t *min_addr,
++					  uint64_t *max_addr)
++{
++	unsigned char *ident = metadata;
++
++	if (!metadata || !metadata_size || !min_addr || !max_addr)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (metadata_size < EI_NIDENT)
++		return TEE_ERROR_BAD_FORMAT;
++
++	if (ident[EI_MAG0] != ELFMAG0 || ident[EI_MAG1] != ELFMAG1 ||
++	    ident[EI_MAG2] != ELFMAG2 || ident[EI_MAG3] != ELFMAG3)
++		return TEE_ERROR_BAD_FORMAT;
++
++	*min_addr = UINT64_MAX;
++	*max_addr = 0;
++
++	switch (ident[EI_CLASS]) {
++	case ELFCLASS64: {
++		Elf64_Ehdr *ehdr = (void *)metadata;
++
++		if (metadata_size < sizeof(*ehdr))
++			return TEE_ERROR_BAD_FORMAT;
++
++		if (pas_mbn_scan_phdrs_64(metadata, metadata_size, ehdr,
++					 min_addr, max_addr))
++			return TEE_ERROR_BAD_FORMAT;
++		break;
++	}
++	case ELFCLASS32: {
++		Elf32_Ehdr *ehdr = (void *)metadata;
++
++		if (metadata_size < sizeof(*ehdr))
++			return TEE_ERROR_BAD_FORMAT;
++
++		if (pas_mbn_scan_phdrs_32(metadata, metadata_size, ehdr,
++					 min_addr, max_addr))
++			return TEE_ERROR_BAD_FORMAT;
++		break;
++	}
++	default:
++		return TEE_ERROR_BAD_FORMAT;
++	}
++
++	if (*min_addr >= *max_addr)
++		return TEE_ERROR_BAD_FORMAT;
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result qcom_pas_init_image(struct qcom_pas_session *s, uint32_t pt,
+ 				      TEE_Param params[TEE_NUM_PARAMS])
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	uint64_t fw_min_addr = UINT64_MAX;
++	uint64_t fw_max_addr = 0;
++	TEE_Param pta_params[TEE_NUM_PARAMS];
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	const uint32_t pta_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = pas_get_fw_min_max_addr(params[1].memref.buffer,
++				      params[1].memref.size,
++				      &fw_min_addr,
++				      &fw_max_addr);
++	if (res)
++		return res;
++
++	pta_params[0].value.a = params[0].value.a;
++	pta_params[0].value.b = fw_max_addr - fw_min_addr;
++	pta_params[1].value.a = (uint32_t)(fw_min_addr & LOW_ADDR_MASK);
++	pta_params[1].value.b = (uint32_t)(fw_min_addr >> HIGH_ADDR_SHIFT);
+ 
+ 	res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
+-				  PTA_QCOM_PAS_INIT_IMAGE, pt, params, NULL);
++				  PTA_QCOM_PAS_INIT_IMAGE, pta_pt, pta_params, NULL);
+ 	if (res)
+ 		return res;
+ 
+-- 
+2.34.1
+

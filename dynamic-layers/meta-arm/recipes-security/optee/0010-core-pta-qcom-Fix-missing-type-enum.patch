@@ -1,0 +1,28 @@
+From aa4599a54bfbde6cc7b18c1f7d026f03c1267cfd Mon Sep 17 00:00:00 2001
+From: Harshal Dev <harshal.dev@oss.qualcomm.com>
+Date: Mon, 12 Oct 2026 20:20:29 +0530
+Subject: [PATCH 10/10] core: pta: qcom: Fix missing type enum
+
+Fix missing type enum.
+
+Upstream-Status: Pending
+Signed-off-by: Harshal Dev <harshal.dev@oss.qualcomm.com>
+---
+ core/pta/qcom/pas/pas_core.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/core/pta/qcom/pas/pas_core.c b/core/pta/qcom/pas/pas_core.c
+index fcb16409b..4657a13d1 100644
+--- a/core/pta/qcom/pas/pas_core.c
++++ b/core/pta/qcom/pas/pas_core.c
+@@ -61,6 +61,7 @@ TEE_Result pas_platform_mem_setup(uint32_t pas_id, uint32_t fw_size,
+ {
+ 	struct qcom_pas_subsys *subsys = qcom_pas_lookup(pas_id);
+ 	struct qcom_pas_data *data = NULL;
++	enum teecore_memtypes type = MEM_AREA_IO_NSEC;
+ 
+ 	if (!subsys)
+ 		return TEE_ERROR_NOT_SUPPORTED;
+-- 
+2.34.1
+

@@ -1,0 +1,33 @@
+From d0856b1517dd2b2267aa0795a82f2b2e39fd2d4a Mon Sep 17 00:00:00 2001
+From: Taniya Das <taniya.das@oss.qualcomm.com>
+Date: Mon, 28 Sep 2026 15:22:42 +0530
+Subject: [PATCH 05/10] pta: qcom: pas: Remove processor reset from bring-up
+
+The processor does not require a reset during the subsystem bring-up
+path. The reset sequence is only required during the shutdown path
+instead.
+
+Upstream-Status: Pending
+Signed-off-by: Taniya Das <taniya.das@oss.qualcomm.com>
+---
+ core/pta/qcom/pas/pas_core.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/core/pta/qcom/pas/pas_core.c b/core/pta/qcom/pas/pas_core.c
+index 804ab0084..fcb16409b 100644
+--- a/core/pta/qcom/pas/pas_core.c
++++ b/core/pta/qcom/pas/pas_core.c
+@@ -124,10 +124,6 @@ TEE_Result pas_platform_auth_and_reset(uint32_t pas_id)
+ 
+ 	switch (subsys->reset_seq) {
+ 	case QCOM_PAS_RESET_CLK_FULL:
+-		res = qcom_clock_pas_reset(data->clk_group);
+-		if (res != TEE_SUCCESS)
+-			return res;
+-
+ 		res = qcom_clock_enable(data->clk_group);
+ 		if (res != TEE_SUCCESS)
+ 			return res;
+-- 
+2.34.1
+

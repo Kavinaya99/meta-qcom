@@ -1,0 +1,60 @@
+From 2765bba0bf04825794949355c038d458fe499ae8 Mon Sep 17 00:00:00 2001
+From: Taniya Das <taniya.das@oss.qualcomm.com>
+Date: Tue, 29 Sep 2026 14:59:25 +0530
+Subject: [PATCH 04/10] pta: qcom: pas: validate controller window base
+
+PAS MEM_SETUP maps a controller window when a subsystem declares a
+nonzero size. Reject descriptors with no physical base before mapping
+the window, avoiding an attempted mapping of physical address zero.
+
+Keep zero-sized, window-less images such as DTBs valid, and retain an
+already established virtual mapping.
+
+Upstream-Status: Pending
+Signed-off-by: Taniya Das <taniya.das@oss.qualcomm.com>
+---
+ core/pta/qcom/pas/pas_core.c | 19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/core/pta/qcom/pas/pas_core.c b/core/pta/qcom/pas/pas_core.c
+index 3d646306b..804ab0084 100644
+--- a/core/pta/qcom/pas/pas_core.c
++++ b/core/pta/qcom/pas/pas_core.c
+@@ -43,6 +43,7 @@ TEE_Result pas_platform_init_image(uint32_t pas_id, uint32_t fw_size,
+ {
+ 	struct qcom_pas_subsys *subsys = qcom_pas_lookup(pas_id);
+ 	struct qcom_pas_data *data = NULL;
++	enum teecore_memtypes type = MEM_AREA_IO_NSEC;
+ 
+ 	if (!subsys)
+ 		return TEE_ERROR_NOT_SUPPORTED;
+@@ -69,16 +70,18 @@ TEE_Result pas_platform_mem_setup(uint32_t pas_id, uint32_t fw_size,
+ 	data->fw_base = fw_base_low;
+ 	data->fw_base |= SHIFT_U64(fw_base_high, 32);
+ 
+-	/* Window-less images (e.g. a DTB blob) carry only fw_base/fw_size. */
+-	if (data->size && !data->base.va) {
+-		enum teecore_memtypes type = data->secure ? MEM_AREA_IO_SEC :
+-							     MEM_AREA_IO_NSEC;
+-
+-		data->base.va = (vaddr_t)core_mmu_add_mapping(type,
++	/* Map the controller */
++	if (data->size) {
++		if (!data->base.pa)
++			return TEE_ERROR_BAD_PARAMETERS;
++		if (!data->base.va) {
++			type = data->secure ? MEM_AREA_IO_SEC : MEM_AREA_IO_NSEC;
++			data->base.va = (vaddr_t)core_mmu_add_mapping(type,
+ 							      data->base.pa,
+ 							      data->size);
+-		if (!data->base.va)
+-			return TEE_ERROR_GENERIC;
++			if (!data->base.va)
++				return TEE_ERROR_GENERIC;
++		}
+ 	}
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.34.1
+
