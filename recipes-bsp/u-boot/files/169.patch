@@ -1,0 +1,357 @@
+From 721f6912ae84643f78975da6158a176d67f27be4 Mon Sep 17 00:00:00 2001
+From: KR Sowmiya <kr.sowmiya@oss.qualcomm.com>
+Date: Sun, 4 Oct 2026 20:33:32 +0530
+Subject: [PATCH] cdt: enable CDT for Shikra SPL
+
+Add support for loading the Config/Chip Data Table (CDT) from eMMC
+during the Shikra SPL boot flow and registering it with QCLIB via
+the interface table.
+
+- Define CDT partition name, hwpart, staging IMEM address
+  (SHIKRA_CDT_ADDR) and size (SHIKRA_CDT_SIZE) constants.
+- Add shikra_load_cdt_from_emmc() to locate the "cdt" GPT partition
+  on eMMC hwpart 1, read it into the fixed IMEM staging address, and
+  restore hwpart 0 afterwards.
+- Call the new loader from qcom_spl_soc_qclib_override() and add a
+  SHIKRA_CDT entry to the QCLIB interface table so QCLIB can consume
+  the staged CDT data instead of falling back to default platform
+  info.
+
+Upstream-Status: Pending
+Signed-off-by: KR Sowmiya <kr.sowmiya@oss.qualcomm.com>
+---
+ arch/arm/mach-snapdragon/Kconfig            |  69 ++++++++++
+ arch/arm/mach-snapdragon/board_spl.c        | 141 ++++++++++++++++++++
+ arch/arm/mach-snapdragon/include/mach/spl.h |   1 +
+ board/qualcomm/shikra/spl-shikra.c          |  24 +++-
+ configs/qcom_shikra_spl_defconfig           |   8 +-
+ 5 files changed, 241 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm/mach-snapdragon/Kconfig b/arch/arm/mach-snapdragon/Kconfig
+index 2433a0a06361..5ddaeed8e585 100644
+--- a/arch/arm/mach-snapdragon/Kconfig
++++ b/arch/arm/mach-snapdragon/Kconfig
+@@ -63,6 +63,75 @@ config QCOM_HWDETECT
+ 	  Hardware parameter detection from SMEM and TCSR for
+ 	  DTB selection and other platform subsystems.
+ 
++config QCOM_SPL_CDT_SUPPORTED
++	bool "Enable CDT support in SPL"
++	depends on SPL
++	help
++	  Enable support for reading the CDT off the boot medium during
++	  SPL and staging it in IMEM, so that QCLIB can pick it up via
++	  the interface table.
++
++if QCOM_SPL_CDT_SUPPORTED
++
++choice
++	prompt "CDT partition lookup method"
++	default QCOM_SPL_CDT_USE_PARTITION_NAME
++
++config QCOM_SPL_CDT_USE_PARTITION_NAME
++	bool "Look up the CDT partition by GPT partition name"
++	depends on SPL_PARTITIONS
++	help
++	  Locate the CDT partition on the boot medium by its GPT partition
++	  name (CONFIG_QCOM_SPL_CDT_PARTITION_NAME).
++
++config QCOM_SPL_CDT_USE_PARTITION_GUID
++	bool "Look up the CDT partition by GPT partition type GUID"
++	depends on SPL_PARTITION_TYPE_GUID
++	help
++	  Locate the CDT partition on the boot medium by its GPT partition
++	  type GUID (CONFIG_QCOM_SPL_CDT_PARTITION_GUID).
++
++endchoice
++
++config QCOM_SPL_CDT_PARTITION_NAME
++	string "CDT GPT partition name"
++	depends on QCOM_SPL_CDT_USE_PARTITION_NAME
++	default "cdt"
++	help
++	  Name of the GPT partition on the boot medium containing the CDT
++	  (Config/Chip Data Table) data.
++
++config QCOM_SPL_CDT_PARTITION_GUID
++	string "CDT GPT partition type GUID"
++	depends on QCOM_SPL_CDT_USE_PARTITION_GUID
++	help
++	  GPT partition type GUID identifying the CDT (Config/Chip Data
++	  Table) partition on the boot medium.
++
++config QCOM_SPL_CDT_MMC_PARTITION_NUM
++	int "eMMC hardware partition containing the CDT partition"
++	default 0
++	help
++	  eMMC hardware partition number (0 = default user data area) on
++	  which the CDT GPT partition is located. Ignored for non-MMC boot
++	  media.
++
++config QCOM_SPL_BOOTIMEM_CDT_BASE
++	hex "IMEM address to stage the CDT contents at"
++	help
++	  Address within BOOTIMEM where the CDT contents read from the boot
++	  medium are staged, to be consumed by QCLIB via the interface
++	  table.
++
++config QCOM_SPL_BOOTITEM_CDT_SIZE
++	hex "Maximum number of bytes to stage for the CDT"
++	default 0x200
++	help
++	  Maximum number of bytes read from the CDT partition and staged at
++	  CONFIG_QCOM_SPL_BOOTIMEM_CDT_BASE.
++
++endif # QCOM_SPL_CDT_SUPPORTED
++
+ choice
+ 	prompt "Qualcomm boot0.h workaround"
+ 	optional
+diff --git a/arch/arm/mach-snapdragon/board_spl.c b/arch/arm/mach-snapdragon/board_spl.c
+index 5aa84a3a6d16..d71a0240cffd 100644
+--- a/arch/arm/mach-snapdragon/board_spl.c
++++ b/arch/arm/mach-snapdragon/board_spl.c
+@@ -6,9 +6,15 @@
+  */
+ 
+ #include <asm/sections.h>
++#include <blk.h>
++#include <dm/uclass.h>
+ #include <hang.h>
+ #include <init.h>
++#include <linux/kernel.h>
+ #include <mach/qclib.h>
++#include <mach/spl.h>
++#include <memalign.h>
++#include <part.h>
+ #include <spl.h>
+ #include <soc/qcom/smem.h>
+ 
+@@ -35,6 +41,141 @@ void __weak qcom_spl_soc_rpm_reset(void)
+ {
+ }
+ 
++/**
++ * qcom_spl_get_boot_blk_desc() - Get the boot media's block device.
++ * @descp:	Set to the resolved block device on success.
++ *
++ * Maps the already-detected boot device to the uclass/devnum pair.
++ *
++ * Return: 0 on success, or a negative error code if the boot device is
++ * unsupported or its block device can't be found.
++ */
++static int qcom_spl_get_boot_blk_desc(struct blk_desc **descp)
++{
++	enum uclass_id uclass_id;
++	int devnum;
++
++	switch (spl_boot_device()) {
++	case BOOT_DEVICE_MMC1:
++		uclass_id = UCLASS_MMC;
++		devnum = 0;
++		break;
++	case BOOT_DEVICE_MMC2:
++	case BOOT_DEVICE_MMC2_2:
++		uclass_id = UCLASS_MMC;
++		devnum = 1;
++		break;
++	case BOOT_DEVICE_UFS:
++		uclass_id = UCLASS_SCSI;
++		devnum = 0;
++		break;
++	default:
++		return -ENOSYS;
++	}
++
++	*descp = blk_get_devnum_by_uclass_id(uclass_id, devnum);
++	if (!*descp)
++		return -ENODEV;
++
++	return 0;
++}
++
++#if IS_ENABLED(CONFIG_QCOM_SPL_CDT_SUPPORTED)
++/**
++ * qcom_spl_cdt_load() - Load the CDT from the boot medium.
++ *
++ * This functions read the boot medium for CDT information which gets saved
++ * in IMEM location.
++ *
++ * Return: 0 on success, or a negative error code on failure.
++ */
++int qcom_spl_cdt_load(void)
++{
++	struct blk_desc *desc;
++	struct disk_partition info;
++	lbaint_t blocks;
++	bool is_mmc;
++	int ret;
++
++	ret = qcom_spl_get_boot_blk_desc(&desc);
++	if (ret) {
++		pr_debug("CDT: boot device not supported for CDT staging (%d)\n",
++			 ret);
++		return ret;
++	}
++
++	is_mmc = desc->uclass_id == UCLASS_MMC;
++	if (is_mmc) {
++		ret = blk_dselect_hwpart(desc, CONFIG_QCOM_SPL_CDT_MMC_PARTITION_NUM);
++		if (ret)
++			return ret;
++	}
++	part_init(desc);
++
++#if defined(CONFIG_QCOM_SPL_CDT_USE_PARTITION_NAME)
++	ret = part_get_info_by_name(desc, CONFIG_QCOM_SPL_CDT_PARTITION_NAME, &info);
++#elif defined(CONFIG_QCOM_SPL_CDT_USE_PARTITION_GUID)
++	ret = part_get_info_by_type_guid(desc, CONFIG_QCOM_SPL_CDT_PARTITION_GUID,
++					 &info);
++#else
++	ret = -EINVAL;
++#endif
++	if (ret < 0) {
++		pr_err("CDT: partition not found (%d)\n", ret);
++		goto restore_hwpart;
++	}
++
++	blocks = DIV_ROUND_UP(CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE, info.blksz);
++	if (blocks > info.size)
++		blocks = info.size;
++
++	{
++		ALLOC_CACHE_ALIGN_BUFFER(u8, blk_buf, blocks * info.blksz);
++		size_t read_size = blocks * info.blksz;
++		size_t copy_size = min_t(size_t, CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE,
++					 read_size);
++
++		if (blk_dread(desc, info.start, blocks, blk_buf) != blocks) {
++			pr_err("CDT: failed to read CDT partition\n");
++			ret = -EIO;
++			goto restore_hwpart;
++		}
++
++		/*
++		 * Zero the full staging area first so any bytes beyond what
++		 * was actually read (partition smaller than
++		 * CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE) don't leak stale IMEM
++		 * contents to QCLIB.
++		 */
++		memset((u8 *)CONFIG_QCOM_SPL_BOOTIMEM_CDT_BASE, 0,
++		       CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE);
++		memcpy((u8 *)CONFIG_QCOM_SPL_BOOTIMEM_CDT_BASE, blk_buf, copy_size);
++	}
++
++	ret = 0;
++
++restore_hwpart:
++	/* Restore the default (user data) hardware partition, if eMMC. */
++	if (is_mmc) {
++		int rc = blk_dselect_hwpart(desc, 0);
++
++		if (rc) {
++			if (!ret)
++				ret = rc;
++			return ret;
++		}
++	}
++	part_init(desc);
++
++	return ret;
++}
++#else
++int qcom_spl_cdt_load(void)
++{
++	return -ENOSYS;
++}
++#endif /* IS_ENABLED(CONFIG_QCOM_SPL_CDT_SUPPORTED) */
++
+ #if IS_ENABLED(CONFIG_SPL_SMEM)
+ /**
+  * qcom_spl_populate_smem() - Populate shared memory (SMEM) information.
+diff --git a/arch/arm/mach-snapdragon/include/mach/spl.h b/arch/arm/mach-snapdragon/include/mach/spl.h
+index 50cc8dc4e8f8..ef804017641a 100644
+--- a/arch/arm/mach-snapdragon/include/mach/spl.h
++++ b/arch/arm/mach-snapdragon/include/mach/spl.h
+@@ -9,5 +9,6 @@
+ void qcom_spl_malloc_init_f(void);
+ int qcom_spl_loader_pre_ddr(u8 boot_device);
+ void qcom_spl_error_handler(void *arg);
++int qcom_spl_cdt_load(void);
+ 
+ #endif /* __SPL_H__ */
+diff --git a/board/qualcomm/shikra/spl-shikra.c b/board/qualcomm/shikra/spl-shikra.c
+index 1a385877dd5f..af0f5d20252f 100644
+--- a/board/qualcomm/shikra/spl-shikra.c
++++ b/board/qualcomm/shikra/spl-shikra.c
+@@ -12,6 +12,7 @@
+ #include <dm/uclass.h>
+ #include <init.h>
+ #include <linux/err.h>
++#include <linux/kernel.h>
+ #include <linux/sizes.h>
+ #include <linux/string.h>
+ #include <malloc.h>
+@@ -313,6 +314,7 @@ void board_init_f(ulong dummy)
+ 		reset_cpu();
+ }
+ #endif
++
+ int qcom_spl_soc_qclib_override(struct interface_table *table,
+ 				const void *fit, int images_node)
+ {
+@@ -346,7 +348,19 @@ int qcom_spl_soc_qclib_override(struct interface_table *table,
+ 	if (ret)
+ 		return ret;
+ 
+-	return qclib_add_iftbl_entry(table, SHIKRA_DDR_SR_EXIT, 0, 0);
++	ret = qclib_add_iftbl_entry(table, SHIKRA_DDR_SR_EXIT, 0, 0);
++	if (ret)
++		return ret;
++
++	if (IS_ENABLED(CONFIG_QCOM_SPL_CDT_SUPPORTED)) {
++		ret = qclib_add_iftbl_entry(table, CONFIG_QCOM_SPL_CDT_PARTITION_NAME,
++					    CONFIG_QCOM_SPL_BOOTIMEM_CDT_BASE,
++					    CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
+ }
+ 
+ void qcom_spl_soc_shrm_reset(void)
+@@ -361,8 +375,16 @@ void qcom_spl_soc_shrm_reset(void)
+ 
+ int qcom_spl_soc_pre_qclib_routine(void)
+ {
++	int ret;
++
+ 	qcom_spl_soc_shrm_reset();
+ 
++	if (IS_ENABLED(CONFIG_QCOM_SPL_CDT_SUPPORTED)) {
++		ret = qcom_spl_cdt_load();
++		if (ret)
++			return ret;
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/configs/qcom_shikra_spl_defconfig b/configs/qcom_shikra_spl_defconfig
+index dcaa144339d9..17ca484af482 100644
+--- a/configs/qcom_shikra_spl_defconfig
++++ b/configs/qcom_shikra_spl_defconfig
+@@ -67,4 +67,10 @@ CONFIG_SPL_REMAKE_ELF_LDSCRIPT="board/qualcomm/shikra/shikra-spl-wrap-elf.lds"
+ CONFIG_QCOM_XBL_SEC_ELF="qc_sec.mbn"
+ CONFIG_QCOM_SPL_BOOTIMEM_FLUSH_BASE=0x0C219000
+ CONFIG_QCOM_SPL_BOOTIMEM_FLUSH_SIZE=0x134000
+-CONFIG_SYS_BOARD="shikra"
+\ No newline at end of file
++CONFIG_SYS_BOARD="shikra"
++CONFIG_QCOM_SPL_CDT_SUPPORTED=y
++CONFIG_QCOM_SPL_CDT_USE_PARTITION_NAME=y
++CONFIG_QCOM_SPL_CDT_PARTITION_NAME="cdt"
++CONFIG_QCOM_SPL_CDT_MMC_PARTITION_NUM=1
++CONFIG_QCOM_SPL_BOOTIMEM_CDT_BASE=0x0c370000
++CONFIG_QCOM_SPL_BOOTITEM_CDT_SIZE=0x200

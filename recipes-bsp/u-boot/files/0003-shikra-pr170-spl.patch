@@ -1,0 +1,736 @@
+From b6cc2f5014ddb74998d518311339a6e62716686c Mon Sep 17 00:00:00 2001
+From: Aswin Murugan <aswin.murugan@oss.qualcomm.com>
+Date: Tue, 6 Oct 2026 13:05:40 +0530
+Subject: [PATCH 1/3] arm: dts: shikra: mark console/storage/RPM nodes
+ bootph-all for SPL
+
+Add "bootph-all" to the gcc, tlmm, qup_uart0_default, sdc1_state_on,
+sdc1_state_off, sdhc_1, qupv3_0, uart0, rpmcc and rpmpd nodes in
+shikra-iqs-evk-u-boot.dtsi.
+
+Upstream-Status: Pending
+Signed-off-by: KR Sowmiya <kr.sowmiya@oss.qualcomm.com>
+---
+ arch/arm/dts/shikra-iqs-evk-u-boot.dtsi | 42 +++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/arch/arm/dts/shikra-iqs-evk-u-boot.dtsi b/arch/arm/dts/shikra-iqs-evk-u-boot.dtsi
+index aede2957d97b..ab75b7d80e37 100644
+--- a/arch/arm/dts/shikra-iqs-evk-u-boot.dtsi
++++ b/arch/arm/dts/shikra-iqs-evk-u-boot.dtsi
+@@ -28,6 +28,48 @@
+ 	compatible = "qcom,shikra-imem", "syscon", "simple-mfd";
+ };
+ 
++/* Keep the console and QUPFW storage paths in the SPL device tree. */
++&gcc {
++	bootph-all;
++};
++
++&tlmm {
++	bootph-all;
++};
++
++&qup_uart0_default {
++	bootph-all;
++};
++
++&sdc1_state_on {
++	bootph-all;
++};
++
++&sdc1_state_off {
++	bootph-all;
++};
++
++&sdhc_1 {
++	bootph-all;
++};
++
++&qupv3_0 {
++	bootph-all;
++};
++
++&uart0 {
++	bootph-all;
++};
++
++/* Retain the RPM clock and power-domain providers for boot consumers. */
++&rpmcc {
++	bootph-all;
++};
++
++&rpmpd {
++	bootph-all;
++};
++
+ /* Enter Qualcomm EDL/download mode via "reset -edl". */
+ &{/psci} {
+ 	reboot-mode {
+
+From 10c71e3e48a6e944cc6a0e191803d02a047c274e Mon Sep 17 00:00:00 2001
+From: Aswin Murugan <aswin.murugan@oss.qualcomm.com>
+Date: Tue, 6 Oct 2026 13:06:01 +0530
+Subject: [PATCH 2/3] configs: qcom_shikra_spl: simplify SPL defconfig via base
+ include
+
+Replace duplicated base configuration entries in
+qcom_shikra_spl_defconfig with "#include qcom_shikra_defconfig" to
+avoid config drift between the SPL and main defconfigs.
+
+Signed-off-by: KR Sowmiya <kr.sowmiya@oss.qualcomm.com>
+---
+ configs/qcom_shikra_spl_defconfig | 62 ++++++-------------------------
+ 1 file changed, 11 insertions(+), 51 deletions(-)
+
+diff --git a/configs/qcom_shikra_spl_defconfig b/configs/qcom_shikra_spl_defconfig
+index 1d997510c774..dcaa144339d9 100644
+--- a/configs/qcom_shikra_spl_defconfig
++++ b/configs/qcom_shikra_spl_defconfig
+@@ -1,53 +1,11 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+-CONFIG_ARM=y
+-CONFIG_SKIP_LOWLEVEL_INIT=y
+-CONFIG_POSITION_INDEPENDENT=y
+-CONFIG_SYS_INIT_SP_BSS_OFFSET=0x180000
+-CONFIG_ARCH_SNAPDRAGON=y
+-CONFIG_TEXT_BASE=0x87980000
+-CONFIG_NR_DRAM_BANKS=2
+-CONFIG_ENV_SIZE=0x40000
+-CONFIG_ENV_OFFSET=0
+-# CONFIG_OF_UPSTREAM is not set
+-CONFIG_DEFAULT_DEVICE_TREE="shikra-cqs-evk"
+-CONFIG_SYS_LOAD_ADDR=0x90000000
+-CONFIG_REMAKE_ELF=y
+-CONFIG_FIT=y
+-CONFIG_FIT_VERBOSE=y
+-# CONFIG_BOOTSTD is not set
+-CONFIG_OF_BOARD_SETUP=y
+-CONFIG_USE_PREBOOT=y
++
++#include "qcom_shikra_defconfig"
++
++# CONFIG_DEBUG_UART is not set
++
+ CONFIG_SYS_PBSIZE=1024
+-# CONFIG_DISPLAY_CPUINFO is not set
+-CONFIG_DISPLAY_BOARDINFO_LATE=y
+-CONFIG_HUSH_PARSER=y
+-CONFIG_CMD_MMC=y
+-CONFIG_CMD_PART=y
+-CONFIG_EFI_PARTITION=y
+-CONFIG_OF_LIVE=y
+-CONFIG_ENV_IS_IN_MMC=y
+-CONFIG_CLK=y
+-CONFIG_CLK_QCOM_SHIKRA=y
+-CONFIG_MSM_GPIO=y
+-CONFIG_MISC=y
+-CONFIG_QCOM_GENI=y
+-CONFIG_MMC_HS200_SUPPORT=y
+-CONFIG_MMC_SDHCI=y
+-# CONFIG_MMC_SDHCI_ADMA_HELPERS is not set
+-# CONFIG_MMC_SDHCI_ADMA is not set
+-# CONFIG_MMC_SDHCI_ADMA_FORCE_32BIT is not set
+-# CONFIG_MMC_SDHCI_ADMA_64BIT is not set
+-CONFIG_MMC_SDHCI_MSM=y
+-CONFIG_PINCTRL=y
+-CONFIG_PINCONF=y
+-CONFIG_PINCTRL_QCOM=y
+-CONFIG_PINCTRL_QCOM_SHIKRA=y
+-CONFIG_DEBUG_UART_MSM_GENI=y
+-CONFIG_DEBUG_UART_BASE=0x4a80000
+-CONFIG_DEBUG_UART_CLOCK=14745600
+-CONFIG_MSM_SERIAL=y
+-CONFIG_MSM_GENI_SERIAL=y
+-CONFIG_SOC_QCOM=y
++
+ CONFIG_SPL=y
+ CONFIG_SPL_FRAMEWORK=y
+ CONFIG_SPL_OF_CONTROL=y
+@@ -65,6 +23,7 @@ CONFIG_SPL_PINCTRL_QCOM=y
+ CONFIG_SPL_PINCTRL_QCOM_SHIKRA=y
+ CONFIG_SPL_CLK=y
+ CONFIG_SPL_CLK_STUB=y
++CONFIG_SPL_CLK_QCOM_SHIKRA=y
+ CONFIG_SPL_DRIVERS_MISC=y
+ CONFIG_SPL_DRIVERS_MISC_SUPPORT=y
+ CONFIG_SPL_QCOM_GENI=y
+@@ -73,7 +32,7 @@ CONFIG_SPL_MSM_GENI_SERIAL=y
+ CONFIG_SPL_SMEM=y
+ CONFIG_DM_STATS=y
+ CONFIG_SPL_SYS_MALLOC_F=y
+-CONFIG_SPL_SYS_MALLOC_F_LEN=0x48000
++CONFIG_SPL_SYS_MALLOC_F_LEN=0x38000
+ CONFIG_SPL_SYS_MALLOC=y
+ CONFIG_SYS_MALLOC_DEFAULT_TO_INIT=y
+ CONFIG_SPL_HAS_CUSTOM_MALLOC_START=y
+@@ -102,9 +61,10 @@ CONFIG_SPL_LOAD_FIT_ADDRESS=0x0C2C1800
+ CONFIG_SPL_HAVE_INIT_STACK=y
+ CONFIG_SPL_STACK=0x0C294800
+ # CONFIG_SAVE_PREV_BL_FDT_ADDR is not set
++# CONFIG_SAVE_PREV_BL_INITRAMFS_START_ADDR is not set
+ CONFIG_SPL_REMAKE_ELF=y
+ CONFIG_SPL_REMAKE_ELF_LDSCRIPT="board/qualcomm/shikra/shikra-spl-wrap-elf.lds"
+-CONFIG_QCOM_XBL_SEC_ELF="qc_sec_local_signed.mbn"
++CONFIG_QCOM_XBL_SEC_ELF="qc_sec.mbn"
+ CONFIG_QCOM_SPL_BOOTIMEM_FLUSH_BASE=0x0C219000
+ CONFIG_QCOM_SPL_BOOTIMEM_FLUSH_SIZE=0x134000
+-CONFIG_SYS_BOARD="shikra"
++CONFIG_SYS_BOARD="shikra"
+\ No newline at end of file
+
+From 6a92157adbb86cc1e12b50adc4bcf29c6d628ddc Mon Sep 17 00:00:00 2001
+From: Aswin Murugan <aswin.murugan@oss.qualcomm.com>
+Date: Tue, 6 Oct 2026 16:04:11 +0530
+Subject: [PATCH 3/3] clk: qcom: add SPL Kconfig options for Qualcomm clock
+ drivers
+
+Add a common SPL_CLK_QCOM option and corresponding
+SPL_CLK_QCOM_<SOC> entries for all Qualcomm clock drivers.
+
+This allows SPL defconfigs to enable per-SoC Qualcomm clock
+drivers through dedicated SPL Kconfig symbols.
+
+Signed-off-by: KR Sowmiya <kr.sowmiya@oss.qualcomm.com>
+---
+ drivers/clk/qcom/Kconfig  | 248 ++++++++++++++++++++++++++++++++++++++
+ drivers/clk/qcom/Makefile |  60 ++++-----
+ 2 files changed, 278 insertions(+), 30 deletions(-)
+
+diff --git a/drivers/clk/qcom/Kconfig b/drivers/clk/qcom/Kconfig
+index 6db258a29cec..65e12593d16e 100644
+--- a/drivers/clk/qcom/Kconfig
++++ b/drivers/clk/qcom/Kconfig
+@@ -5,6 +5,11 @@ config CLK_QCOM
+ 	depends on CLK && DM_RESET && POWER_DOMAIN
+ 	def_bool n
+ 
++config SPL_CLK_QCOM
++	bool
++	depends on SPL_CLK && SPL_DM_RESET && SPL_POWER_DOMAIN
++	def_bool n
++
+ menu "Qualcomm clock drivers"
+ 
+ config CLK_QCOM_APQ8016
+@@ -15,6 +20,14 @@ config CLK_QCOM_APQ8016
+ 	  on the Snapdragon APQ8016 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_APQ8016
++	bool "Qualcomm APQ8016 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_APQ8016.
++	  See the help of CLK_QCOM_APQ8016 for details.
++
+ config CLK_QCOM_APQ8096
+ 	bool "Qualcomm APQ8096 GCC"
+ 	select CLK_QCOM
+@@ -23,6 +36,14 @@ config CLK_QCOM_APQ8096
+ 	  on the Snapdragon APQ8096 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_APQ8096
++	bool "Qualcomm APQ8096 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_APQ8096.
++	  See the help of CLK_QCOM_APQ8096 for details.
++
+ config CLK_QCOM_IPQ4019
+ 	bool "Qualcomm IPQ4019 GCC"
+ 	select CLK_QCOM
+@@ -31,6 +52,14 @@ config CLK_QCOM_IPQ4019
+ 	  on the Snapdragon IPQ4019 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_IPQ4019
++	bool "Qualcomm IPQ4019 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_IPQ4019.
++	  See the help of CLK_QCOM_IPQ4019 for details.
++
+ config CLK_QCOM_IPQ5210
+ 	bool "Qualcomm IPQ5210 GCC"
+ 	select CLK_QCOM
+@@ -39,6 +68,14 @@ config CLK_QCOM_IPQ5210
+ 	  on the Qualcomm IPQ5210 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_IPQ5210
++	bool "Qualcomm IPQ5210 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_IPQ5210.
++	  See the help of CLK_QCOM_IPQ5210 for details.
++
+ config CLK_QCOM_IPQ5424
+ 	bool "Qualcomm IPQ5424 GCC"
+ 	select CLK_QCOM
+@@ -47,6 +84,14 @@ config CLK_QCOM_IPQ5424
+ 	  on the Qualcomm IPQ5424 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_IPQ5424
++	bool "Qualcomm IPQ5424 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_IPQ5424.
++	  See the help of CLK_QCOM_IPQ5424 for details.
++
+ config CLK_QCOM_IPQ9574
+ 	bool "Qualcomm IPQ9574 GCC"
+ 	select CLK_QCOM
+@@ -55,6 +100,14 @@ config CLK_QCOM_IPQ9574
+ 	  on the Snapdragon IPQ9574 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_IPQ9574
++	bool "Qualcomm IPQ9574 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_IPQ9574.
++	  See the help of CLK_QCOM_IPQ9574 for details.
++
+ config CLK_QCOM_MILOS
+ 	bool "Qualcomm Milos GCC"
+ 	select CLK_QCOM
+@@ -63,6 +116,14 @@ config CLK_QCOM_MILOS
+ 	  on the Snapdragon Milos SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_MILOS
++	bool "Qualcomm Milos GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_MILOS.
++	  See the help of CLK_QCOM_MILOS for details.
++
+ config CLK_QCOM_NORD
+ 	bool "Qualcomm Nord GCC"
+ 	select CLK_QCOM
+@@ -71,6 +132,14 @@ config CLK_QCOM_NORD
+ 	  on the Snapdragon Nord SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_NORD
++	bool "Qualcomm Nord GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_NORD.
++	  See the help of CLK_QCOM_NORD for details.
++
+ config CLK_QCOM_NORD_NEGCC
+ 	bool "Qualcomm Nord NEGCC"
+ 	select CLK_QCOM
+@@ -80,6 +149,14 @@ config CLK_QCOM_NORD_NEGCC
+ 	  UFS, USB, and QUPv3 clocks and resets exposed by the NEGCC
+ 	  hardware block.
+ 
++config SPL_CLK_QCOM_NORD_NEGCC
++	bool "Qualcomm Nord NEGCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_NORD_NEGCC.
++	  See the help of CLK_QCOM_NORD_NEGCC for details.
++
+ config CLK_QCOM_NORD_SEGCC
+ 	bool "Qualcomm Nord SEGCC"
+ 	select CLK_QCOM
+@@ -89,6 +166,14 @@ config CLK_QCOM_NORD_SEGCC
+ 	  EMAC and QUPv3 clocks and resets exposed by the SEGCC hardware
+ 	  block.
+ 
++config SPL_CLK_QCOM_NORD_SEGCC
++	bool "Qualcomm Nord SEGCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_NORD_SEGCC.
++	  See the help of CLK_QCOM_NORD_SEGCC for details.
++
+ config CLK_QCOM_NORD_NWGCC
+ 	bool "Qualcomm Nord NWGCC"
+ 	select CLK_QCOM
+@@ -98,6 +183,14 @@ config CLK_QCOM_NORD_NWGCC
+ 	  camera, display, EVA, video, and GPU clocks and resets exposed by
+ 	  the NWGCC hardware block.
+ 
++config SPL_CLK_QCOM_NORD_NWGCC
++	bool "Qualcomm Nord NWGCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_NORD_NWGCC.
++	  See the help of CLK_QCOM_NORD_NWGCC for details.
++
+ config CLK_QCOM_NORD_TCSRCC
+ 	bool "Qualcomm Nord TCSRCC"
+ 	select CLK_QCOM
+@@ -106,6 +199,14 @@ config CLK_QCOM_NORD_TCSRCC
+ 	  Snapdragon Nord SoC. This driver supports the CLKREF enable gates
+ 	  exposed by the TCSRCC hardware block.
+ 
++config SPL_CLK_QCOM_NORD_TCSRCC
++	bool "Qualcomm Nord TCSRCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_NORD_TCSRCC.
++	  See the help of CLK_QCOM_NORD_TCSRCC for details.
++
+ config CLK_QCOM_QCM2290
+ 	bool "Qualcomm QCM2290 GCC"
+ 	select CLK_QCOM
+@@ -114,6 +215,14 @@ config CLK_QCOM_QCM2290
+ 	  on the Snapdragon QCM2290 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_QCM2290
++	bool "Qualcomm QCM2290 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_QCM2290.
++	  See the help of CLK_QCOM_QCM2290 for details.
++
+ config CLK_QCOM_QCS404
+ 	bool "Qualcomm QCS404 GCC"
+ 	select CLK_QCOM
+@@ -122,6 +231,14 @@ config CLK_QCOM_QCS404
+ 	  on the Snapdragon QCS404 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_QCS404
++	bool "Qualcomm QCS404 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_QCS404.
++	  See the help of CLK_QCOM_QCS404 for details.
++
+ config CLK_QCOM_QCS615
+ 	bool "Qualcomm QCS615 GCC"
+ 	select CLK_QCOM
+@@ -130,6 +247,14 @@ config CLK_QCOM_QCS615
+ 	  on the Snapdragon QCS615 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_QCS615
++	bool "Qualcomm QCS615 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_QCS615.
++	  See the help of CLK_QCOM_QCS615 for details.
++
+ config CLK_QCOM_QCS8300
+ 	bool "Qualcomm QCS8300 GCC"
+ 	select CLK_QCOM
+@@ -138,6 +263,14 @@ config CLK_QCOM_QCS8300
+ 	  on the Snapdragon QCS8300 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_QCS8300
++	bool "Qualcomm QCS8300 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_QCS8300.
++	  See the help of CLK_QCOM_QCS8300 for details.
++
+ config CLK_QCOM_RPMH
+ 	bool "Qualcomm RPMh clock driver"
+ 	depends on CLK
+@@ -147,6 +280,13 @@ config CLK_QCOM_RPMH
+ 	  owned by the always-on subsystem; the driver only reports the fixed
+ 	  CXO rate (bi_tcxo_div2) and accepts no-op enable/set_rate requests.
+ 
++config SPL_CLK_QCOM_RPMH
++	bool "Qualcomm RPMh clock driver in SPL"
++	depends on SPL_CLK
++	help
++	  SPL variant of CLK_QCOM_RPMH.
++	  See the help of CLK_QCOM_RPMH for details.
++
+ config CLK_QCOM_SA8775P
+ 	bool "Qualcomm SA8775 GCC"
+ 	select CLK_QCOM
+@@ -156,6 +296,15 @@ config CLK_QCOM_SA8775P
+ 	  on the Snapdragon SA8775 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SA8775P
++	bool "Qualcomm SA8775 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	select SPL_CLK_QCOM_RPMH
++	help
++	  SPL variant of CLK_QCOM_SA8775P.
++	  See the help of CLK_QCOM_SA8775P for details.
++
+ config CLK_QCOM_SDM845
+ 	bool "Qualcomm SDM845 GCC"
+ 	select CLK_QCOM
+@@ -164,6 +313,14 @@ config CLK_QCOM_SDM845
+ 	  on the Snapdragon 845 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SDM845
++	bool "Qualcomm SDM845 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SDM845.
++	  See the help of CLK_QCOM_SDM845 for details.
++
+ config CLK_QCOM_SHIKRA
+ 	bool "Qualcomm Shikra GCC"
+ 	select CLK_QCOM
+@@ -172,6 +329,14 @@ config CLK_QCOM_SHIKRA
+ 	  on the Shikra SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SHIKRA
++	bool "Qualcomm Shikra GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SHIKRA.
++	  See the help of CLK_QCOM_SHIKRA for details.
++
+ config CLK_QCOM_SM6115
+ 	bool "Qualcomm SM6115 GCC"
+ 	select CLK_QCOM
+@@ -180,6 +345,14 @@ config CLK_QCOM_SM6115
+ 	  on the Snapdragon SM6115 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM6115
++	bool "Qualcomm SM6115 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM6115.
++	  See the help of CLK_QCOM_SM6115 for details.
++
+ config CLK_QCOM_SM6125
+ 	bool "Qualcomm SM6125 GCC"
+ 	select CLK_QCOM
+@@ -188,6 +361,14 @@ config CLK_QCOM_SM6125
+ 	  on the Snapdragon SM6125 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM6125
++	bool "Qualcomm SM6125 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM6125.
++	  See the help of CLK_QCOM_SM6125 for details.
++
+ config CLK_QCOM_SM6350
+ 	bool "Qualcomm SM6350 GCC"
+ 	select CLK_QCOM
+@@ -195,6 +376,14 @@ config CLK_QCOM_SM6350
+ 	  Say Y here to enable support for the Global Clock Controller
+ 	  on the Snapdragon SM6350 SoC. This driver supports the clocks
+ 
++config SPL_CLK_QCOM_SM6350
++	bool "Qualcomm SM6350 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM6350.
++	  See the help of CLK_QCOM_SM6350 for details.
++
+ config CLK_QCOM_SM7150
+ 	bool "Qualcomm SM7150 GCC"
+ 	select CLK_QCOM
+@@ -203,6 +392,14 @@ config CLK_QCOM_SM7150
+ 	  on the Snapdragon SM7150 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM7150
++	bool "Qualcomm SM7150 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM7150.
++	  See the help of CLK_QCOM_SM7150 for details.
++
+ config CLK_QCOM_SM8150
+ 	bool "Qualcomm SM8150 GCC"
+ 	select CLK_QCOM
+@@ -211,6 +408,14 @@ config CLK_QCOM_SM8150
+ 	  on the Snapdragon 8150 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM8150
++	bool "Qualcomm SM8150 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM8150.
++	  See the help of CLK_QCOM_SM8150 for details.
++
+ config CLK_QCOM_SM8250
+ 	bool "Qualcomm SM8250 GCC"
+ 	select CLK_QCOM
+@@ -219,6 +424,14 @@ config CLK_QCOM_SM8250
+ 	  on the Snapdragon SM8250 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM8250
++	bool "Qualcomm SM8250 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_SM8250.
++	  See the help of CLK_QCOM_SM8250 for details.
++
+ config CLK_QCOM_SM8550
+ 	bool "Qualcomm SM8550 GCC"
+ 	select CLK_QCOM
+@@ -228,6 +441,15 @@ config CLK_QCOM_SM8550
+ 	  on the Snapdragon SM8550 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM8550
++	bool "Qualcomm SM8550 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	select SPL_CLK_QCOM_RPMH
++	help
++	  SPL variant of CLK_QCOM_SM8550.
++	  See the help of CLK_QCOM_SM8550 for details.
++
+ config CLK_QCOM_SM8650
+ 	bool "Qualcomm SM8650 GCC"
+ 	select CLK_QCOM
+@@ -237,6 +459,15 @@ config CLK_QCOM_SM8650
+ 	  on the Snapdragon SM8650 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SM8650
++	bool "Qualcomm SM8650 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	select SPL_CLK_QCOM_RPMH
++	help
++	  SPL variant of CLK_QCOM_SM8650.
++	  See the help of CLK_QCOM_SM8650 for details.
++
+ config CLK_QCOM_SC7280
+ 	bool "Qualcomm SC7280 GCC"
+ 	select CLK_QCOM
+@@ -246,6 +477,15 @@ config CLK_QCOM_SC7280
+ 	  on the Snapdragon SC7280 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_SC7280
++	bool "Qualcomm SC7280 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	select SPL_CLK_QCOM_RPMH
++	help
++	  SPL variant of CLK_QCOM_SC7280.
++	  See the help of CLK_QCOM_SC7280 for details.
++
+ config CLK_QCOM_X1E80100
+ 	bool "Qualcomm X1E80100 GCC"
+ 	select CLK_QCOM
+@@ -254,6 +494,14 @@ config CLK_QCOM_X1E80100
+ 	  on the Snapdragon X1E80100 SoC. This driver supports the clocks
+ 	  and resets exposed by the GCC hardware block.
+ 
++config SPL_CLK_QCOM_X1E80100
++	bool "Qualcomm X1E80100 GCC in SPL"
++	depends on SPL_CLK
++	select SPL_CLK_QCOM
++	help
++	  SPL variant of CLK_QCOM_X1E80100.
++	  See the help of CLK_QCOM_X1E80100 for details.
++
+ endmenu
+ 
+ endif
+diff --git a/drivers/clk/qcom/Makefile b/drivers/clk/qcom/Makefile
+index 4b4264aba9db..1ab421ca52d4 100644
+--- a/drivers/clk/qcom/Makefile
++++ b/drivers/clk/qcom/Makefile
+@@ -3,33 +3,33 @@
+ # (C) Copyright 2023 Linaro
+ 
+ obj-y += clock-qcom.o
+-obj-$(CONFIG_CLK_QCOM_SDM845) += clock-sdm845.o
+-obj-$(CONFIG_CLK_QCOM_APQ8016) += clock-apq8016.o
+-obj-$(CONFIG_CLK_QCOM_APQ8096) += clock-apq8096.o
+-obj-$(CONFIG_CLK_QCOM_IPQ4019) += clock-ipq4019.o
+-obj-$(CONFIG_CLK_QCOM_IPQ5210) += clock-ipq5210.o
+-obj-$(CONFIG_CLK_QCOM_IPQ5424) += clock-ipq5424.o
+-obj-$(CONFIG_CLK_QCOM_IPQ9574) += clock-ipq9574.o
+-obj-$(CONFIG_CLK_QCOM_MILOS) += clock-milos.o
+-obj-$(CONFIG_CLK_QCOM_NORD) += clock-nord-gcc.o
+-obj-$(CONFIG_CLK_QCOM_NORD_NEGCC) += clock-nord-negcc.o
+-obj-$(CONFIG_CLK_QCOM_NORD_SEGCC) += clock-nord-segcc.o
+-obj-$(CONFIG_CLK_QCOM_NORD_NWGCC) += clock-nord-nwgcc.o
+-obj-$(CONFIG_CLK_QCOM_NORD_TCSRCC) += clock-nord-tcsrcc.o
+-obj-$(CONFIG_CLK_QCOM_QCM2290) += clock-qcm2290.o
+-obj-$(CONFIG_CLK_QCOM_QCS404) += clock-qcs404.o
+-obj-$(CONFIG_CLK_QCOM_QCS8300) += clock-qcs8300.o
+-obj-$(CONFIG_CLK_QCOM_QCS615) += clock-qcs615.o
+-obj-$(CONFIG_CLK_QCOM_RPMH) += clock-rpmh.o
+-obj-$(CONFIG_CLK_QCOM_SA8775P) += clock-sa8775p.o
+-obj-$(CONFIG_CLK_QCOM_SC7280) += clock-sc7280.o
+-obj-$(CONFIG_CLK_QCOM_SHIKRA) += clock-shikra.o
+-obj-$(CONFIG_CLK_QCOM_SM6115) += clock-sm6115.o
+-obj-$(CONFIG_CLK_QCOM_SM6125) += clock-sm6125.o
+-obj-$(CONFIG_CLK_QCOM_SM6350) += clock-sm6350.o
+-obj-$(CONFIG_CLK_QCOM_SM7150) += clock-sm7150.o
+-obj-$(CONFIG_CLK_QCOM_SM8150) += clock-sm8150.o
+-obj-$(CONFIG_CLK_QCOM_SM8250) += clock-sm8250.o
+-obj-$(CONFIG_CLK_QCOM_SM8550) += clock-sm8550.o
+-obj-$(CONFIG_CLK_QCOM_SM8650) += clock-sm8650.o
+-obj-$(CONFIG_CLK_QCOM_X1E80100) += clock-x1e80100.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SDM845) += clock-sdm845.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_APQ8016) += clock-apq8016.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_APQ8096) += clock-apq8096.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_IPQ4019) += clock-ipq4019.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_IPQ5210) += clock-ipq5210.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_IPQ5424) += clock-ipq5424.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_IPQ9574) += clock-ipq9574.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_MILOS) += clock-milos.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_NORD) += clock-nord-gcc.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_NORD_NEGCC) += clock-nord-negcc.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_NORD_SEGCC) += clock-nord-segcc.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_NORD_NWGCC) += clock-nord-nwgcc.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_NORD_TCSRCC) += clock-nord-tcsrcc.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_QCM2290) += clock-qcm2290.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_QCS404) += clock-qcs404.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_QCS8300) += clock-qcs8300.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_QCS615) += clock-qcs615.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_RPMH) += clock-rpmh.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SA8775P) += clock-sa8775p.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SC7280) += clock-sc7280.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SHIKRA) += clock-shikra.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM6115) += clock-sm6115.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM6125) += clock-sm6125.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM6350) += clock-sm6350.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM7150) += clock-sm7150.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM8150) += clock-sm8150.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM8250) += clock-sm8250.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM8550) += clock-sm8550.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_SM8650) += clock-sm8650.o
++obj-$(CONFIG_$(PHASE_)CLK_QCOM_X1E80100) += clock-x1e80100.o
