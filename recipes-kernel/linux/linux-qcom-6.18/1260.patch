@@ -1,0 +1,28 @@
+From a5860c436c73a9ba075c25155f2a714f99a96715 Mon Sep 17 00:00:00 2001
+From: Bibek Kumar Patro <bibek.patro@oss.qualcomm.com>
+Date: Fri, 9 Oct 2026 01:41:16 +0530
+Subject: [PATCH] arm64: dts: qcom: shikra: Disable cti_riscv node
+
+The RISCV CTI node at 0x982b000 is not functional on Shikra as the
+RISCV core is not present. Mark it disabled to prevent coresight
+from attempting to probe it.
+
+Upstream-Status: Pending
+Change-Id: Ia7904334bff9de0e55ad4d08f6af5446edb8d9ef
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/qcom/shikra.dtsi | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra.dtsi b/arch/arm64/boot/dts/qcom/shikra.dtsi
+index 16c541c1a657..068104b56d3c 100644
+--- a/arch/arm64/boot/dts/qcom/shikra.dtsi
++++ b/arch/arm64/boot/dts/qcom/shikra.dtsi
+@@ -4891,6 +4891,7 @@
+ 			clocks = <&rpmcc RPM_SMD_QDSS_CLK>;
+ 			clock-names = "apb_pclk";
+ 			label = "cti_riscv";
++			status = "disabled";
+ 		};
+ 
+ 		tpdm@9860000 {

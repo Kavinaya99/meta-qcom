@@ -14,9 +14,8 @@ COMPATIBLE_MACHINE:aarch64 = "(qcom)"
 
 PV = "2026.07+2026.10-rc1+git"
 
-# tag: qcom-next-v2026.10-rc1-20260915
-SRCREV = "5ec66cb5c3f29e2da1f55464109cae3fe8545b69"
-SRCBRANCH = "nobranch=1"
+SRCREV = "7c85dcadfb6027b5b0b0342d8deee142c1cd44cf"
+SRCBRANCH = "branch=qcom-next"
 
 SRC_URI = "git://github.com/qualcomm-linux/u-boot.git;${SRCBRANCH};protocol=https;name=uboot"
 SRC_URI += " \
@@ -27,6 +26,26 @@ SRC_URI += " \
     ${@bb.utils.contains('MACHINE_FEATURES', 'kvm', 'file://gunyah-exit.cfg', '', d)} \
     ${@bb.utils.contains('SPL_SIGN_ENABLE', '1', 'file://spl-fit-signature.cfg', '', d)} \
 "
+
+SRC_URI:append:shikra-evk = " \
+    file://0002-shikra-pr168-optee.patch \
+"
+
+DEPENDS:append:shikra-evk = " shikra-bootbins"
+QC_SEC_MBN ?= "${STAGING_DATADIR}/shikra-bootbins/qc_sec.mbn"
+
+install_qc_sec() {
+    install -d "$1"
+    install -m 0644 ${QC_SEC_MBN} "$1/qc_sec.mbn"
+}
+
+do_compile:prepend:shikra-evk() {
+    install_qc_sec ${S}
+}
+
+uboot_compile_config:prepend:shikra-evk() {
+    install_qc_sec ${B}/${builddir}
+}
 
 python __anonymous() {
     ubootconfig = (d.getVar('UBOOT_CONFIG') or "").split()
@@ -52,6 +71,12 @@ uboot_compile_config:append() {
     elif [ -n "${config_mbn_header}" ]; then
         export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
         qtestsign -${config_mbn_header} aboot -o ${B}/${builddir}/u-boot.mbn ${B}/${builddir}/u-boot.elf
+        if [ -n "${SPL_BINARY}" ]; then
+            bbnote "Signing spl/u-boot-spl.elf as sbl1 (${config_mbn_header})"
+            qtestsign -${config_mbn_header} sbl1 \
+                -o ${B}/${builddir}/u-boot-spl.mbn \
+                ${B}/${builddir}/spl/u-boot-spl.elf
+        fi
     fi
 }
 
@@ -65,7 +90,7 @@ uboot_assemble_fitimage_helper:append() {
         (unset LDFLAGS CFLAGS; oe_runmake -C ${S} O=${B}/${builddir} ${UBOOT_MAKE_OPTS} spl/u-boot-spl.elf)
 
         export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
-        swiv_build_utility u-boot-spl-swiv.elf spl/u-boot-spl.elf ${QCOM_FW_SWIV_PLATFORM}
+        swiv_build_utility u-boot-spl-swiv.elf spl/u-boot-spl.elf ${QCOM_UBOOT_SPL_SWIV_PLATFORM}
         qtestsign -${mbn_header} tz -o u-boot-spl.mbn u-boot-spl-swiv.elf
         rm -f u-boot-spl-swiv.elf
     fi
@@ -79,4 +104,5 @@ uboot_deploy_config:append() {
     elif [ -f ${B}/${builddir}/u-boot.mbn ]; then
         install -m 0644 ${B}/${builddir}/u-boot.mbn ${DEPLOYDIR}/u-boot-${type}.mbn
     fi
+    install -m 0644 ${B}/${builddir}/u-boot-spl.mbn ${DEPLOYDIR}/u-boot-spl.mbn
 }

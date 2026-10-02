@@ -21,7 +21,7 @@ do_configure[depends] += '${@oe.utils.vartrue("KERNEL_PAHOLE", "pahole-native:do
 EXTRA_OEMAKE += '${@oe.utils.vartrue("KERNEL_PAHOLE", "", "PAHOLE=false", d)}'
 
 # tag:qcom-6.18.y-20260926
-SRCREV ?= "8d0ad3756ce7d4febc2a5cbdc4d7ab9781d798ca"
+SRCREV ?= "143c1172c89b56ba26b8c9fd7bdc63cb04bb79d0"
 
 SRCBRANCH ?= "nobranch=1"
 SRCBRANCH:class-devupstream ?= "branch=qcom-6.18.y"
@@ -29,6 +29,8 @@ SRCBRANCH:class-devupstream ?= "branch=qcom-6.18.y"
 SRC_URI = " \
     git://github.com/qualcomm-linux/kernel.git;${SRCBRANCH};protocol=https \
     file://0001-tools-use-basename-to-identify-file-in-gen-mach-type.patch \
+    file://1277.patch \
+    file://1260.patch \
 "
 
 # Additional kernel configs.
