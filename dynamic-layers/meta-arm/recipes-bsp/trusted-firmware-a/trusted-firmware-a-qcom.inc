@@ -18,7 +18,7 @@ SRCREV_tfa = "10ecf7dcc641e8453e2e2ea2f21c13c7a867ffe0"
 LIC_FILES_CHKSUM += "file://docs/license.rst;md5=6ed7bace7b0bc63021c6eba7b524039e"
 
 COMPATIBLE_MACHINE = "^$"
-COMPATIBLE_MACHINE:aarch64 = "(qcom)"
+COMPATIBLE_MACHINE:aarch64 = "(qcom)|shikra-evk"
 
 python () {
     if not d.getVar('FIP_ELF_ADDR'):
@@ -26,6 +26,8 @@ python () {
 }
 
 TFA_BUILD_TARGET = "${@bb.utils.contains('QCOM_UBOOT_SPL_FIT', '1', 'bl31', 'bl2 bl31 fip', d)}"
+
+TFA_BUILD_TARGET:shikra-evk = "bl31 fip"
 TFA_SPD = "opteed"
 
 EXTRA_OEMAKE:append = " \
@@ -52,7 +54,7 @@ do_install:append() {
             swiv_build_utility ${D}${FIRMWARE_DIR}/bl2-swiv.elf ${D}${FIRMWARE_DIR}/bl2.elf ${QCOM_FW_SWIV_PLATFORM}
             bl2_elf=${D}${FIRMWARE_DIR}/bl2-swiv.elf
         fi
-        qtestsign -v6 tz -o ${D}${FIRMWARE_DIR}/bl2.mbn $bl2_elf
+	#qtestsign -v6 tz -o ${D}${FIRMWARE_DIR}/bl2.mbn $bl2_elf
         rm -f ${D}${FIRMWARE_DIR}/bl2-swiv.elf
     fi
 }

@@ -1,0 +1,384 @@
+/*
+ * ==========================================================================
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: ISC
+ * ==========================================================================
+ */
+
+/dts-v1/;
+
+/* Component availability defines - all default OFF. gen_its.py flips the
+ * ones matching the --<name>_path tags actually supplied on the command
+ * line, then runs this file through cpp -P to strip the rest. */
+#define HAVE_PMIC_COCOS 0
+#define HAVE_PMIC_WAILUA 0
+#define HAVE_DCB_LP4 0
+#define HAVE_DCB_LP5 0
+#define HAVE_ECC 0
+
+#define HAVE_SHRM 0
+#define HAVE_SHRM_2 0
+
+#define HAVE_QCLIB 0
+#define HAVE_QCLIB_2 0
+
+#define HAVE_TFA_BL31 0
+/* tfa_bl31 / optee also accept a flat binary (.bin); gen_its.py then uses
+ * hardcoded load+entry addresses: TFA=0xa1300000, OP-TEE=0xa1400000. */
+#define HAVE_TFA_BL31_2 0
+#define HAVE_TFA_BL31_3 0
+#define HAVE_TFA_BL31_4 0
+/* tfa_bl31 carries its "entry" property on segment 1 and on whichever
+ * segment turns out to be the last one actually present (2, 3 or 4) - the
+ * script picks exactly one of these three to enable. */
+#define HAVE_TFA_BL31_2_ENTRY 0
+#define HAVE_TFA_BL31_3_ENTRY 0
+#define HAVE_TFA_BL31_4_ENTRY 0
+
+#define HAVE_RPM 0
+#define HAVE_RPM_2 0
+
+#define HAVE_UBOOT 0
+#define HAVE_OPTEE 0
+#define HAVE_OPTEE_2 0
+
+#define HAVE_DPR 0
+#define HAVE_FDT 0
+#define HAVE_PRE_DDR 0
+#define HAVE_POST_DDR 0
+
+/ {
+    description = "FIT Image for Vendor Boot Loader";
+
+    images {
+
+#if HAVE_PMIC_COCOS == 1
+        pmic_cocos {
+            description = "pmic_cocos";
+            data = /incbin/("./pmic_cocos.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "elf";
+            load = <PMIC_COCOS_ADDR>;
+            entry = <PMIC_COCOS_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_PMIC_WAILUA == 1
+        pmic_wailua {
+            description = "pmic_wailua";
+            data = /incbin/("./pmic_wailua.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <PMIC_WAILUA_ADDR>;
+            entry = <PMIC_WAILUA_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_DCB_LP4 == 1
+        dcb_lp4 {
+            description = "dcb_lp4";
+            data = /incbin/("./dcb_lp4.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <DCB_LP4_ADDR>;
+            entry = <DCB_LP4_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_DCB_LP5 == 1
+        dcb_lp5 {
+            description = "dcb_lp5";
+            data = /incbin/("./dcb_lp5.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <DCB_LP5_ADDR>;
+            entry = <DCB_LP5_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_ECC == 1
+        ecc {
+            description = "ecc";
+            data = /incbin/("./ecc.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <ECC_ADDR>;
+            entry = <ECC_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_SHRM == 1
+        shrm_1 {
+            description = "shrm1";
+            data = /incbin/("./shrm_1_load_segment.bin");
+            type = "firmware";
+            arch = "riscv";
+            load = <SHRM_1_LOAD_ADDR>;
+            entry = <SHRM_ENTRY_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_SHRM_2 == 1
+        shrm_2 {
+            description = "shrm2";
+            data = /incbin/("./shrm_2_load_segment.bin");
+            type = "firmware";
+            arch = "riscv";
+            load = <SHRM_2_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_QCLIB == 1
+        qclib_1 {
+            description = "qclib1";
+            data = /incbin/("./qclib_1_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "elf";
+            load = <QCLIB_1_LOAD_ADDR>;
+            entry = <QCLIB_ENTRY_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_QCLIB_2 == 1
+        qclib_2 {
+            description = "qclib2";
+            data = /incbin/("./qclib_2_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <QCLIB_2_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_TFA_BL31 == 1
+        tfa_bl31_1 {
+            description = "tfa_bl311";
+            data = /incbin/("./tfa_bl31_1_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "arm-trusted-firmware";
+            load = <TFA_BL31_1_LOAD_ADDR>;
+            entry = <TFA_BL31_ENTRY_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_TFA_BL31_2 == 1
+        tfa_bl31_2 {
+            description = "tfa_bl312";
+            data = /incbin/("./tfa_bl31_2_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <TFA_BL31_2_LOAD_ADDR>;
+#if HAVE_TFA_BL31_2_ENTRY == 1
+            entry = <TFA_BL31_ENTRY_ADDR>;
+#endif
+            compression = "none";
+        };
+#endif
+
+#if HAVE_TFA_BL31_3 == 1
+        tfa_bl31_3 {
+            description = "tfa_bl313";
+            data = /incbin/("./tfa_bl31_3_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <TFA_BL31_3_LOAD_ADDR>;
+#if HAVE_TFA_BL31_3_ENTRY == 1
+            entry = <TFA_BL31_ENTRY_ADDR>;
+#endif
+            compression = "none";
+        };
+#endif
+
+#if HAVE_TFA_BL31_4 == 1
+        tfa_bl31_4 {
+            description = "tfa_bl314";
+            data = /incbin/("./tfa_bl31_4_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "arm-trusted-firmware";
+            load = <TFA_BL31_4_LOAD_ADDR>;
+#if HAVE_TFA_BL31_4_ENTRY == 1
+            entry = <TFA_BL31_ENTRY_ADDR>;
+#endif
+            compression = "none";
+        };
+#endif
+
+#if HAVE_RPM == 1
+        rpm_1 {
+            description = "rpm1";
+            data = /incbin/("./rpm_1_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <RPM_1_LOAD_ADDR>;
+            entry = <RPM_1_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_RPM_2 == 1
+        rpm_2 {
+            description = "rpm2";
+            data = /incbin/("./rpm_2_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <RPM_2_LOAD_ADDR>;
+            entry = <RPM_2_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_UBOOT == 1
+        uboot_1 {
+            description = "uboot1";
+            data = /incbin/("./uboot_1_load_segment.bin");
+            type = "standalone";
+            arch = "arm64";
+            os = "u-boot";
+            load = <UBOOT_1_LOAD_ADDR>;
+            entry = <UBOOT_ENTRY_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_OPTEE == 1
+        optee_1 {
+            description = "optee1";
+            data = /incbin/("./optee_1_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            os = "tee";
+            load = <OPTEE_1_LOAD_ADDR>;
+            entry = <OPTEE_ENTRY_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_OPTEE_2 == 1
+        optee_2 {
+            description = "optee2";
+            data = /incbin/("./optee_2_load_segment.bin");
+            type = "firmware";
+            arch = "arm64";
+            load = <OPTEE_2_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_DPR == 1
+        dpr {
+            description = "dpr";
+            data = /incbin/("./DPR_FILENAME");
+            type = "firmware";
+            arch = "arm64";
+            os = "elf";
+            load = <DPR_LOAD_ADDR>;
+            compression = "none";
+        };
+#endif
+
+#if HAVE_FDT == 1
+        fdt-uboot {
+            description = "ARM64 OpenWrt qcom_maxx device tree blob";
+            data = /incbin/("./FDT_PATH");
+            type = "flat_dt";
+            arch = "arm64";
+            compression = "none";
+        };
+#endif
+
+    };
+
+    configurations {
+#if HAVE_POST_DDR == 1
+        default = "post-ddr-config";
+#else
+        default = "pre-ddr-config";
+#endif
+
+#if HAVE_PRE_DDR == 1
+        pre-ddr-config {
+            description = "pre-ddr";
+            loadables =
+#if HAVE_PMIC_COCOS == 1
+                  "pmic_cocos",
+#endif
+#if HAVE_PMIC_WAILUA == 1
+                  "pmic_wailua",
+#endif
+#if HAVE_DCB_LP4 == 1
+                  "dcb_lp4",
+#endif
+#if HAVE_DCB_LP5 == 1
+                  "dcb_lp5",
+#endif
+#if HAVE_ECC == 1
+                  "ecc",
+#endif
+#if HAVE_SHRM == 1
+                  "shrm_1",
+#endif
+#if HAVE_SHRM_2 == 1
+                  "shrm_2",
+#endif
+#if HAVE_DPR == 1
+                  "dpr",
+#endif
+#if HAVE_QCLIB_2 == 1
+                  "qclib_1",
+                  "qclib_2"
+#else
+                  "qclib_1"
+#endif
+                  ;
+#if HAVE_FDT == 1
+#if HAVE_POST_DDR == 0
+            fdt = "fdt-uboot";
+#endif
+#endif
+        };
+#endif
+
+#if HAVE_POST_DDR == 1
+        post-ddr-config {
+            description = "post-ddr";
+            loadables =
+                  "tfa_bl31_1"
+#if HAVE_TFA_BL31_2 == 1
+                , "tfa_bl31_2"
+#endif
+#if HAVE_TFA_BL31_3 == 1
+                , "tfa_bl31_3"
+#endif
+#if HAVE_TFA_BL31_4 == 1
+                , "tfa_bl31_4"
+#endif
+                , "uboot_1"
+                , "optee_1"
+#if HAVE_OPTEE_2 == 1
+                , "optee_2"
+#endif
+                , "rpm_1"
+#if HAVE_RPM_2 == 1
+                , "rpm_2"
+#endif
+                ;
+#if HAVE_FDT == 1
+            fdt = "fdt-uboot";
+#endif
+        };
+#endif
+    };
+};
