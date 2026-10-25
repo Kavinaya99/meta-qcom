@@ -34,7 +34,6 @@ UBOOT_FIT_UBOOT_ENTRYPOINT ?= "0x9F400000"
 QCOM_UBOOT_SPL_FIT_ATF ?= "trusted-firmware-a-qcom-shikra"
 QCOM_UBOOT_SPL_FIT_TEE ?= "optee-os-qcom-shikra"
 QCOM_UBOOT_SPL_FIT_XBL_SEC ?= "firmware-qcom-boot-shikra"
-<<<<<<< HEAD
 
 # PMIC, DCB, SHRM, QcLib, ECC and RPM blobs are provided by
 # firmware-qcom-boot-shikra. All but RPM are loaded by the SPL at the pre-ddr
@@ -151,5 +150,3 @@ UBOOT_FIT_CONF_NAME ?= "post-ddr"
 
 # The Shikra SPL loads OP-TEE as a firmware image.
 UBOOT_FIT_TEE_TYPE ?= "firmware"
-=======
->>>>>>> 9380b55d (u-boot-qcom: fetch qc_sec.mbn for the shikra xbl-sec elf)
