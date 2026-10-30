@@ -1,0 +1,71 @@
+From 8b688de8c6860f6188b4869c4862de2686a097b7 Mon Sep 17 00:00:00 2001
+From: Bibek Kumar Patro <bibek.patro@oss.qualcomm.com>
+Date: Fri, 9 Oct 2026 01:41:16 +0530
+Subject: [PATCH] arm64: dts: qcom: shikra: Disable cti_riscv node
+
+The RISCV CTI node at 0x982b000 is not functional on Shikra as the
+RISCV core is not present. Mark it disabled to prevent coresight
+from attempting to probe it.
+
+Upstream-Status: Pending
+Change-Id: I73c2c0e88c51372c7a8a4a7117be599be606d4e6
+Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Bibek Kumar Patro <bibek.patro@oss.qualcomm.com>
+---
+ arch/arm64/boot/dts/qcom/shikra-cqm-evk.dts | 2 +-
+ arch/arm64/boot/dts/qcom/shikra-cqs-evk.dts | 2 +-
+ arch/arm64/boot/dts/qcom/shikra-iqs-evk.dts | 2 +-
+ arch/arm64/boot/dts/qcom/shikra.dtsi        | 1 +
+ 4 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra-cqm-evk.dts b/arch/arm64/boot/dts/qcom/shikra-cqm-evk.dts
+index 142c712dfebd..335bed30db81 100644
+--- a/arch/arm64/boot/dts/qcom/shikra-cqm-evk.dts
++++ b/arch/arm64/boot/dts/qcom/shikra-cqm-evk.dts
+@@ -12,7 +12,7 @@
+ #include <dt-bindings/net/ti-dp83867.h>
+ 
+ / {
+-	model = "Qualcomm Technologies, Inc. Shikra CQM EVK";
++	model = "Qualcomm Technologies, Inc. Bibek Shikra CQM EVK";
+ 	compatible = "qcom,shikra-cqm-evk", "qcom,shikra-cqm-som", "qcom,shikra";
+ 	chassis-type = "embedded";
+ 
+diff --git a/arch/arm64/boot/dts/qcom/shikra-cqs-evk.dts b/arch/arm64/boot/dts/qcom/shikra-cqs-evk.dts
+index e74e8ef0dfb6..d5fdd0f807fb 100644
+--- a/arch/arm64/boot/dts/qcom/shikra-cqs-evk.dts
++++ b/arch/arm64/boot/dts/qcom/shikra-cqs-evk.dts
+@@ -11,7 +11,7 @@
+ #include <dt-bindings/net/ti-dp83867.h>
+ 
+ / {
+-	model = "Qualcomm Technologies, Inc. Shikra CQS EVK";
++	model = "Qualcomm Technologies, Inc. Bibek Shikra CQS EVK";
+ 	compatible = "qcom,shikra-cqs-evk", "qcom,shikra-cqs-som", "qcom,shikra";
+ 	chassis-type = "embedded";
+ 
+diff --git a/arch/arm64/boot/dts/qcom/shikra-iqs-evk.dts b/arch/arm64/boot/dts/qcom/shikra-iqs-evk.dts
+index ed43a2c055e2..67993f83e2f1 100644
+--- a/arch/arm64/boot/dts/qcom/shikra-iqs-evk.dts
++++ b/arch/arm64/boot/dts/qcom/shikra-iqs-evk.dts
+@@ -12,7 +12,7 @@
+ #include <dt-bindings/net/ti-dp83867.h>
+ 
+ / {
+-	model = "Qualcomm Technologies, Inc. Shikra IQS EVK";
++	model = "Qualcomm Technologies, Inc. Bibek Shikra IQS EVK";
+ 	compatible = "qcom,shikra-iqs-evk", "qcom,shikra-iqs-som", "qcom,shikra";
+ 	chassis-type = "embedded";
+ 
+diff --git a/arch/arm64/boot/dts/qcom/shikra.dtsi b/arch/arm64/boot/dts/qcom/shikra.dtsi
+index 16c541c1a657..068104b56d3c 100644
+--- a/arch/arm64/boot/dts/qcom/shikra.dtsi
++++ b/arch/arm64/boot/dts/qcom/shikra.dtsi
+@@ -4891,6 +4891,7 @@
+ 			clocks = <&rpmcc RPM_SMD_QDSS_CLK>;
+ 			clock-names = "apb_pclk";
+ 			label = "cti_riscv";
++			status = "disabled";
+ 		};
+ 
+ 		tpdm@9860000 {

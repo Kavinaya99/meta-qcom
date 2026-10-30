@@ -75,6 +75,9 @@ create_qcomflash_pkg() {
     # esp image
     [ -n "${QCOM_ESP_FILE}" ] && cp -l -L ${QCOM_ESP_FILE} efi.bin
 
+    # Shikra U-boot SPL
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/u-boot-spl-shikra-evk-spl.mbn" xbl.elf
+
     # dtb image
     if [ -n "${QCOM_DTB_DEFAULT}" ] && \
                 [ -f "${DEPLOY_DIR_IMAGE}/dtb-${QCOM_DTB_DEFAULT}-image.vfat" ]; then
@@ -160,6 +163,11 @@ create_qcomflash_pkg() {
                 u-boot*)
                     if [ "${QCOM_UBOOT_SPL_FIT}" = "1" ]; then
                         bootloader_bin="${DEPLOY_DIR_IMAGE}/${QCOM_UBOOT_FIT_IMAGE}"
+                        if [ -f "${bootloader_bin}" ]; then
+                            # The SPL, not XBL, loads this FIT, under its own
+                            # name rather than the uefi.elf slot installed below.
+                            install -m 0644 "${bootloader_bin}" ${QCOM_UBOOT_FIT_IMAGE}
+                        fi
                         if [ -f "${DEPLOY_DIR_IMAGE}/${QCOM_UBOOT_SPL_IMAGE}" ]; then
                             install -m 0644 "${DEPLOY_DIR_IMAGE}/${QCOM_UBOOT_SPL_IMAGE}" tz.mbn
                         fi
