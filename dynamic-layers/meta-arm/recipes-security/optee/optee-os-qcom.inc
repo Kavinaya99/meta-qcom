@@ -1,14 +1,10 @@
 require recipes-security/optee/optee-os.inc
 
-PV = "4.11.0-qcom-20261026+git"
+PV = "4.11.0-qcom-20261030+git"
 
-SRC_TAG = "tag=qcom-next-4.11-20261026"
+SRC_TAG = "tag=qcom-next-4.11-20261030"
 SRC_URI = "git://github.com/qualcomm-linux/optee_os.git;protocol=https;name=optee;nobranch=1;${SRC_TAG}"
-SRCREV_optee = "bd57d28b5ac226fe108ef96730b650b8a08bcff4"
-
-# Fetch sources from Shikra specific branch
-SRC_TAG:shikra = "tag=early-hwe-shikra-4.10-20261015"
-SRCREV_optee:shikra = "ff5f3dced71ba8d9ff9d99a00ba4e2e08654b309"
+SRCREV_optee = "7087bd740178eb548584e70df62d0c3e613f8daa"
 
 # Copy of do_deploy from meta-arm until we get it fixed to support configurable deploy dir
 OPTEE_DEPLOY ?= "optee"

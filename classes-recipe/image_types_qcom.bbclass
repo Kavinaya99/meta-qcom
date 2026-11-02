@@ -19,6 +19,8 @@ QCOM_TFA_RECIPE ?= ""
 QCOM_TFA_FIP_IMAGE ?= "fip.elf"
 QCOM_TFA_TZ_IMAGE ?= "bl2.mbn"
 
+QCOM_FITIMAGE_SUBDIR ?= "fitimage"
+
 QCOM_ESP_IMAGE ?= "${@bb.utils.contains("MACHINE_FEATURES", "efi", "esp-qcom-image", "", d)}"
 QCOM_ESP_FILE ?= "${@'${DEPLOY_DIR_IMAGE}/${QCOM_ESP_IMAGE}-${MACHINE}${IMAGE_NAME_SUFFIX}.vfat' if d.getVar('QCOM_ESP_IMAGE') else ''}"
 
@@ -110,6 +112,14 @@ create_qcomflash_pkg() {
     # partition bins/xml files
     if [ -n "${QCOM_PARTITION_FILES_SUBDIR}" ]; then
         deploy_partition_files ${DEPLOY_DIR_IMAGE}/${QCOM_PARTITION_FILES_SUBDIR} .
+    fi
+
+    # TEMP: u-boot pre-DDR FIT artifacts
+    if [ -d ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} ]; then
+        install -d fitimage
+        for fit in `find ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} -maxdepth 1 -type f`; do
+            install -m 0644 ${fit} fitimage/
+        done
     fi
 
     if [ -n "${QCOM_BOOT_FILES_SUBDIR}" ]; then
@@ -238,6 +248,9 @@ create_qcomflash_pkg() {
             [ -f "${DEPLOY_DIR_IMAGE}/${QCOM_CAPSULE_FIRMWARE}.cap" ]; then
         install -m 0644 "${DEPLOY_DIR_IMAGE}/${QCOM_CAPSULE_FIRMWARE}.cap" .
     fi
+
+    # Shikra U-boot SPL
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/u-boot-spl-shikra-evk-spl.mbn" xbl.elf
 
 }
 
