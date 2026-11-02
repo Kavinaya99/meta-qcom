@@ -239,6 +239,9 @@ create_qcomflash_pkg() {
         install -m 0644 "${DEPLOY_DIR_IMAGE}/${QCOM_CAPSULE_FIRMWARE}.cap" .
     fi
 
+    # Shikra U-boot SPL
+    install -m 0644 "${DEPLOY_DIR_IMAGE}/u-boot-spl-shikra-evk-spl.mbn" xbl.elf
+
 }
 
 create_qcomflash_tarball() {
