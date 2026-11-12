@@ -32,6 +32,12 @@ KERNEL_LOCALVERSION ?= "${@qcom_kernel_localversion(d)}"
 SRC_URI = " \
     git://github.com/qualcomm-linux/kernel.git;${SRCBRANCH};protocol=https \
     file://0001-tools-use-basename-to-identify-file-in-gen-mach-type.patch \
+    file://1260.patch \
+    file://0001-PENDING-firmware-qcom-scm-Add-qcom_scm_gpu_init_regs.patch \
+    file://0002-PENDING-drm-msm-a7xx-Don-t-fail-if-the-GPU-init-regs.patch \
+    file://0003-PENDING-dt-bindings-display-msm-gpu-Document-the-CX-.patch \
+    file://0004-PENDING-drm-msm-adreno-Program-the-SMMU-aperture-whe.patch \
+    file://0005-PENDING-arm64-dts-qcom-shikra-Describe-the-GPU-CX-SM.patch \
 "
 
 # Additional kernel configs.

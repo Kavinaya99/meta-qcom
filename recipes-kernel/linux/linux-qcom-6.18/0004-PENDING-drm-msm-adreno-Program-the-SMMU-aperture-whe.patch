@@ -1,0 +1,159 @@
+From 3fbf4fa09c880e6d8fd63f7acdc7aeba0e0016bf Mon Sep 17 00:00:00 2001
+From: Lokesh Kumar <lok@qti.qualcomm.com>
+Date: Thu, 12 Nov 2026 01:25:46 +0530
+Subject: [PATCH 4/5] PENDING: drm/msm/adreno: Program the SMMU aperture when
+ the secure world can't
+
+When qcom_scm_set_gpu_smmu_aperture() isn't implemented by the secure
+world, program the CX SMMU aperture redirect block directly from the
+GPU driver so the CP can still switch to the correct context bank.
+
+For A702, derive smmu_aperture_cb0 as
+(SMMU_PHYS_BASE 0x059a0000 + cb0_offset 0x8000) & 0xfffff = 0xa8000,
+matching the proven-working downstream driver value.
+
+Upstream-Status: Pending
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c |  2 +
+ drivers/gpu/drm/msm/adreno/a6xx_gpu.h     |  6 +++
+ drivers/gpu/drm/msm/adreno/adreno_gpu.c   | 52 ++++++++++++++++++++++-
+ drivers/gpu/drm/msm/adreno/adreno_gpu.h   |  7 +++
+ 4 files changed, 65 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index b4f9fa45e372..ecf1a67b61d6 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -1448,6 +1448,8 @@ static const struct adreno_info a7xx_gpus[] = {
+ 			.protect = &a650_protect,
+ 			.gmu_cgc_mode = 0x00020202,
+ 			.prim_fifo_threshold = 0x0000c000,
++			/* (SMMU_PHYS_BASE 0x059a0000 + cb0_offset 0x8000) & 0xfffff */
++			.smmu_aperture_cb0 = 0xa8000,
+ 		},
+ 		.speedbins = ADRENO_SPEEDBINS(
+ 			{ 0,   0 },
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.h b/drivers/gpu/drm/msm/adreno/a6xx_gpu.h
+index 0b17d36c36a9..10d7934cb549 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.h
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.h
+@@ -50,6 +50,12 @@ struct a6xx_info {
+ 	u32 gmu_cgc_mode;
+ 	u32 prim_fifo_threshold;
+ 	const struct a6xx_bcm *bcms;
++	/*
++	 * Value to program into the CX SMMU aperture so that it points at
++	 * GPU SMMU context bank 0, used when the OS programs the aperture
++	 * itself instead of the secure world.
++	 */
++	u32 smmu_aperture_cb0;
+ };
+ 
+ struct a6xx_gpu {
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.c b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+index 673de5e64c15..5518f799e664 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+@@ -8,11 +8,13 @@
+ 
+ #include <linux/ascii85.h>
+ #include <linux/interconnect.h>
++#include <linux/io.h>
+ #include <linux/firmware/qcom/qcom_pas.h>
+ #include <linux/firmware/qcom/qcom_scm.h>
+ #include <linux/kernel.h>
+ #include <linux/of_reserved_mem.h>
+ #include <linux/pm_opp.h>
++#include <linux/sizes.h>
+ #include <linux/slab.h>
+ #include <linux/soc/qcom/mdt_loader.h>
+ #include <linux/nvmem-consumer.h>
+@@ -655,6 +657,10 @@ int adreno_hw_init(struct msm_gpu *gpu)
+ 		ret = qcom_scm_set_gpu_smmu_aperture(0);
+ 		if (ret)
+ 			DRM_DEV_ERROR(gpu->dev->dev, "unable to set SMMU aperture: %d\n", ret);
++	} else if (adreno_gpu->smmu_aperture) {
++		/* Point the aperture at context bank 0 ourselves */
++		writel(adreno_gpu->info->a6xx->smmu_aperture_cb0,
++		       adreno_gpu->smmu_aperture);
+ 	}
+ 
+ 	for (int i = 0; i < gpu->nr_rings; i++) {
+@@ -1174,6 +1180,42 @@ int adreno_read_speedbin(struct device *dev, u32 *speedbin)
+ 	return nvmem_cell_read_variable_le_u32(dev, "speed_bin", speedbin);
+ }
+ 
++/* The CX SMMU aperture sits at this offset from the GPU register base */
++#define ADRENO_SMMU_APERTURE_OFFSET	0x60000
++
++/*
++ * Find the CX SMMU aperture, so that adreno_hw_init() can program it when
++ * the secure world doesn't. Some GPUs include it in their main register
++ * region, others describe it as a separate region.
++ */
++static void adreno_smmu_aperture_init(struct platform_device *pdev,
++				      struct adreno_gpu *adreno_gpu)
++{
++	const struct adreno_info *info = adreno_gpu->info;
++	struct msm_gpu *gpu = &adreno_gpu->base;
++	struct resource *res;
++	void __iomem *base;
++
++	if (info->family < ADRENO_6XX_GEN1 || !info->a6xx->smmu_aperture_cb0)
++		return;
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
++					   "kgsl_3d0_reg_memory");
++	if (res && resource_size(res) >= ADRENO_SMMU_APERTURE_OFFSET + SZ_4K) {
++		adreno_gpu->smmu_aperture = gpu->mmio + ADRENO_SMMU_APERTURE_OFFSET;
++		return;
++	}
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
++					   "cx_smmu_aperture");
++	if (!res)
++		return;
++
++	base = devm_ioremap_resource(&pdev->dev, res);
++	if (!IS_ERR(base))
++		adreno_gpu->smmu_aperture = base;
++}
++
+ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 		struct adreno_gpu *adreno_gpu,
+ 		const struct adreno_gpu_funcs *funcs, int nr_rings)
+@@ -1233,8 +1275,14 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 		adreno_gpu->info->inactive_period);
+ 	pm_runtime_use_autosuspend(dev);
+ 
+-	return msm_gpu_init(drm, pdev, &adreno_gpu->base, &funcs->base,
+-			gpu_name, &adreno_gpu_config);
++	ret = msm_gpu_init(drm, pdev, &adreno_gpu->base, &funcs->base,
++			   gpu_name, &adreno_gpu_config);
++	if (ret)
++		return ret;
++
++	adreno_smmu_aperture_init(pdev, adreno_gpu);
++
++	return 0;
+ }
+ 
+ void adreno_gpu_cleanup(struct adreno_gpu *adreno_gpu)
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.h b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+index 25ee6b277fe2..1455843a4b7d 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.h
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+@@ -225,6 +225,13 @@ struct adreno_gpu {
+ 	bool has_ray_tracing;
+ 
+ 	u64 uche_trap_base;
++
++	/*
++	 * CX SMMU aperture registers, mapped when the secure world does not
++	 * implement qcom_scm_set_gpu_smmu_aperture() and the OS has to program
++	 * the aperture to point at GPU SMMU context bank 0 itself.
++	 */
++	void __iomem *smmu_aperture;
+ };
+ #define to_adreno_gpu(x) container_of(x, struct adreno_gpu, base)
+ 

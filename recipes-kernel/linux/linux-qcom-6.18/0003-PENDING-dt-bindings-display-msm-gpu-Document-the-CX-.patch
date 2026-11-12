@@ -1,0 +1,36 @@
+From 4c72d5538d71edc1845bf6fe0f1641045ba32454 Mon Sep 17 00:00:00 2001
+From: Lokesh Kumar <lok@qti.qualcomm.com>
+Date: Thu, 12 Nov 2026 01:25:46 +0530
+Subject: [PATCH 3/5] PENDING: dt-bindings: display/msm: gpu: Document the CX
+ SMMU aperture region
+
+Some GPUs describe the CX SMMU aperture redirect block as a separate
+reg region instead of including it in the main register space.
+
+Upstream-Status: Pending
+---
+ Documentation/devicetree/bindings/display/msm/gpu.yaml | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/display/msm/gpu.yaml b/Documentation/devicetree/bindings/display/msm/gpu.yaml
+index d0f5cff3286e..0a080e123a16 100644
+--- a/Documentation/devicetree/bindings/display/msm/gpu.yaml
++++ b/Documentation/devicetree/bindings/display/msm/gpu.yaml
+@@ -54,7 +54,7 @@ properties:
+ 
+   reg:
+     minItems: 1
+-    maxItems: 3
++    maxItems: 4
+ 
+   reg-names:
+     minItems: 1
+@@ -62,6 +62,8 @@ properties:
+       - const: kgsl_3d0_reg_memory
+       - const: cx_mem
+       - const: cx_dbgc
++      - const: cx_smmu_aperture
++        description: GPU CX SMMU aperture registers
+ 
+   interrupts:
+     maxItems: 1
