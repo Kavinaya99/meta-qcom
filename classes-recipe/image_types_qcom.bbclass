@@ -10,6 +10,8 @@ QCOM_CDT_FIRMWARE ?= ""
 PREFERRED_PROVIDER_virtual/qcom-capsule-firmware ?= ""
 QCOM_CAPSULE_FIRMWARE ?= "${PREFERRED_PROVIDER_virtual/qcom-capsule-firmware}"
 
+QCOM_FITIMAGE_SUBDIR ?= "fitimage"
+
 QCOM_UBOOT_SPL_FIT ?= "0"
 QCOM_UBOOT_SPL_IMAGE ?= "u-boot-spl-${UBOOT_CONFIG_DEFAULT}.mbn"
 # Name the SPL is flashed under: tz.mbn where XBL loads it in place of TZ,
@@ -89,6 +91,23 @@ create_qcomflash_pkg() {
         done
     fi
 
+    # uefi_dtbs
+    case "${QCOM_UEFI_DTB}" in
+    *.elf)
+        if [ -f "${DEPLOY_DIR_IMAGE}/${QCOM_BOOT_FILES_SUBDIR}/${QCOM_UEFI_DTB}" ]; then
+            install -m 0644 "${DEPLOY_DIR_IMAGE}/${QCOM_BOOT_FILES_SUBDIR}/${QCOM_UEFI_DTB}" uefi_dtbs.elf
+        fi
+        ;;
+    esac
+
+    # TEMP: u-boot pre-DDR FIT artifacts
+    if [ -d ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} ]; then
+        install -d fitimage
+        for fit in `cd ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} && find . -type f | sed 's|^\./||' | sort`; do
+            install -D -m 0644 ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR}/${fit} fitimage/${fit}
+        done
+    fi
+
     # vmlinux
     [ -e "${DEPLOY_DIR_IMAGE}/vmlinux" -a \
         ! -e "vmlinux" ] && \
@@ -124,7 +143,7 @@ create_qcomflash_pkg() {
 
         # boot firmware
         for bfw in `find ${DEPLOY_DIR_IMAGE}/${QCOM_BOOT_FILES_SUBDIR} -maxdepth 1 -type f \
-                \( -name '*.elf' ! -name 'abl2esp*.elf' ! -name 'xbl_config*.elf' ! -name 'uefi.elf' \) -o \
+                \( -name '*.elf' ! -name 'abl2esp*.elf' ! -name 'xbl_config*.elf' ! -name 'uefi_dtbs_*.elf' ! -name 'uefi.elf' \) -o \
                 -name '*.mbn*' -o \
                 -name '*.melf*' -o \
                 -name '*.fv' -o \

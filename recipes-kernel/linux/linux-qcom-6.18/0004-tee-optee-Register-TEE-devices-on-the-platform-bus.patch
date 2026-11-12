@@ -1,0 +1,278 @@
+From 6383c41450e5b50ff8d17382539a914aa9d6582c Mon Sep 17 00:00:00 2001
+From: Harshal Dev <harshal.dev@oss.qualcomm.com>
+Date: Fri, 13 Nov 2026 18:55:33 +0530
+Subject: [PATCH 4/6] tee: optee: Register TEE devices on the platform bus
+
+The Qualcomm Inline Crypto Engine (ICE) driver is an independent platform
+driver which polls on availability of a TEE interface (SCM driver) before
+checking if the ICE secure service is supported by QTEE by querying the
+qcom_scm_ice_available() API.
+
+The TEE subsystem currently does not provide any way to notify regarding
+the availability of a TEE interface, i.e. whether QCOMTEE or OPTEE have
+probed. And so when migrating to the TEE subsystem via an ICE TEE client
+driver, ICE needs to defer probe until the OPTEE ICE Pseudo TA becomes
+available on the TEE bus. This means that for OPTEE builds without the
+ICE PTA, the ICE driver would indefintely defer probe and the dependent
+UFS/SDHC storage driver will fail to come online.
+
+Add support for optionally registering the back-end TEE devices which
+represent a particular TEE (say OPTEE) on the platform bus via the
+tee_platform_device_register() API. This allows drivers which poll on
+TEE secure interface availability to be notified even if the TEE service
+itself is not supported.
+
+Upstream-Status: Pending
+Signed-off-by: Harshal Dev <harshal.dev@oss.qualcomm.com>
+---
+ MAINTAINERS                                |  1 +
+ drivers/firmware/qcom/qcom_ice_tee.c       | 41 ++++++++++++++++++++++
+ drivers/soc/qcom/Kconfig                   |  1 +
+ drivers/soc/qcom/ice.c                     |  9 ++++-
+ drivers/tee/optee/ffa_abi.c                |  8 +++++
+ drivers/tee/optee/smc_abi.c                |  8 +++++
+ drivers/tee/tee_core.c                     | 21 +++++++++++
+ include/linux/firmware/qcom/qcom_ice_tee.h | 10 ++++++
+ include/linux/tee_core.h                   |  9 +++++
+ 9 files changed, 107 insertions(+), 1 deletion(-)
+ create mode 100644 include/linux/firmware/qcom/qcom_ice_tee.h
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index fc24e83fd555..e9f8b3ebd05a 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -21267,6 +21267,7 @@ L:	linux-arm-msm@vger.kernel.org
+ L:	linux-crypto@vger.kernel.org
+ S:	Maintained
+ F:	drivers/firmware/qcom/qcom_ice_tee.c
++F:	include/linux/firmware/qcom/qcom_ice_tee.h
+ 
+ QUALCOMM INTERCONNECT BWMON DRIVER
+ M:	Krzysztof Kozlowski <krzk@kernel.org>
+diff --git a/drivers/firmware/qcom/qcom_ice_tee.c b/drivers/firmware/qcom/qcom_ice_tee.c
+index a41e119a7beb..5f2949ddcc7c 100644
+--- a/drivers/firmware/qcom/qcom_ice_tee.c
++++ b/drivers/firmware/qcom/qcom_ice_tee.c
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
++#include <linux/platform_device.h>
+ #include <linux/slab.h>
+ #include <linux/tee_drv.h>
+ #include <linux/uuid.h>
+@@ -22,6 +23,9 @@
+ 
+ #define TEE_NUM_PARAMS				4
+ 
++/* This represents the back-end OPTEE device */
++static struct device *__teedev;
++
+ struct qcom_ice_tee_private {
+ 	struct device *dev;
+ 	struct tee_context *ctx;
+@@ -281,6 +285,18 @@ static int qcom_ice_tee_import_key(struct device *dev,
+ 					     lt_key, lt_key_size);
+ }
+ 
++bool qcom_ice_tee_is_available(void)
++{
++	/*
++	 * Paired with smp_load_acquire() in qcom_ice_plat_probe().
++	 *
++	 * This marks the availability of the OPTEE interface informing the
++	 * polling ICE driver that the platform supports a TEE.
++	 */
++	return !!smp_load_acquire(&__teedev);
++}
++EXPORT_SYMBOL_GPL(qcom_ice_tee_is_available);
++
+ static bool qcom_ice_tee_has_wrapped_key_support(struct device *dev)
+ {
+ 	struct qcom_ice_tee_private *data = dev_get_drvdata(dev);
+@@ -399,5 +415,30 @@ static struct tee_client_driver qcom_ice_tee_driver = {
+ 
+ module_tee_client_driver(qcom_ice_tee_driver);
+ 
++static int qcom_ice_plat_probe(struct platform_device *pdev)
++{
++	/* Paired with smp_load_acquire() in qcom_ice_tee_is_available() */
++	smp_store_release(&__teedev, &pdev->dev);
++	return 0;
++}
++
++static const struct platform_device_id qcom_ice_plat_id_table[] = {
++	{
++		.name = "optee",
++	},
++	{ }
++};
++MODULE_DEVICE_TABLE(platform, qcom_ice_plat_id_table);
++
++static struct platform_driver qcom_ice_plat_driver = {
++	.probe = qcom_ice_plat_probe,
++	.id_table = qcom_ice_plat_id_table,
++	.driver = {
++		.name = "qcom-ice-plat",
++	},
++};
++
++module_platform_driver(qcom_ice_plat_driver);
++
+ MODULE_LICENSE("GPL");
+ MODULE_DESCRIPTION("Qualcomm ICE TEE driver");
+diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
+index 905a24b42fe6..c435afd58140 100644
+--- a/drivers/soc/qcom/Kconfig
++++ b/drivers/soc/qcom/Kconfig
+@@ -298,6 +298,7 @@ config QCOM_ICC_BWMON
+ config QCOM_INLINE_CRYPTO_ENGINE
+ 	tristate
+ 	select QCOM_SCM
++	select QCOM_ICE_TEE
+ 
+ config QCOM_PBS
+ 	tristate "PBS trigger support for Qualcomm Technologies, Inc. PMICS"
+diff --git a/drivers/soc/qcom/ice.c b/drivers/soc/qcom/ice.c
+index 6f83a263af42..9127f9e731fd 100644
+--- a/drivers/soc/qcom/ice.c
++++ b/drivers/soc/qcom/ice.c
+@@ -19,6 +19,7 @@
+ #include <linux/pm_opp.h>
+ #include <linux/xarray.h>
+ 
++#include <linux/firmware/qcom/qcom_ice_tee.h>
+ #include <linux/firmware/qcom/qcom_scm.h>
+ #include <soc/qcom/ice.h>
+ 
+@@ -134,7 +135,13 @@ static bool qcom_ice_tz_ops_registered(void)
+ 
+ static bool qcom_ice_tz_is_available(void)
+ {
+-	return qcom_scm_is_available();
++	/*
++	 * Both back-ends should be available before we check for
++	 * qcom_ice_tz_ops_registered(), otherwise we could pre-maturely
++	 * assume that TZ does not provide any ICE secure interface.
++	 */
++	return (qcom_scm_is_available() & qcom_ice_tee_is_available());
++
+ }
+ 
+ static int qcom_ice_tz_invalidate_key(u32 index)
+diff --git a/drivers/tee/optee/ffa_abi.c b/drivers/tee/optee/ffa_abi.c
+index bf8390789ecf..c22b0616192f 100644
+--- a/drivers/tee/optee/ffa_abi.c
++++ b/drivers/tee/optee/ffa_abi.c
+@@ -1134,6 +1134,14 @@ static int optee_ffa_probe(struct ffa_device *ffa_dev)
+ 	if (rc)
+ 		goto err_unregister_devices;
+ 
++	/*
++	 * Device should only be visible on the platform bus once the
++	 * child devices have already been enumerated on the TEE bus.
++	 */
++	rc = tee_platform_device_register(optee->teedev, "optee");
++	if (rc)
++		goto err_unregister_devices;
++
+ 	INIT_WORK(&optee->rpmb_scan_bus_work, optee_bus_scan_rpmb);
+ 	optee->rpmb_intf.notifier_call = optee_rpmb_intf_rdev;
+ 	blocking_notifier_chain_register(&optee_rpmb_intf_added,
+diff --git a/drivers/tee/optee/smc_abi.c b/drivers/tee/optee/smc_abi.c
+index 0be663fcd52b..7db74d710f3a 100644
+--- a/drivers/tee/optee/smc_abi.c
++++ b/drivers/tee/optee/smc_abi.c
+@@ -1911,6 +1911,14 @@ static int optee_probe(struct platform_device *pdev)
+ 	if (rc)
+ 		goto err_disable_shm_cache;
+ 
++	/*
++	 * Device should only be visible on the platform bus once the
++	 * child devices have already been enumerated on the TEE bus.
++	 */
++	rc = tee_platform_device_register(optee->teedev, "optee");
++	if (rc)
++		goto err_disable_shm_cache;
++
+ 	INIT_WORK(&optee->rpmb_scan_bus_work, optee_bus_scan_rpmb);
+ 	optee->rpmb_intf.notifier_call = optee_rpmb_intf_rdev;
+ 	blocking_notifier_chain_register(&optee_rpmb_intf_added,
+diff --git a/drivers/tee/tee_core.c b/drivers/tee/tee_core.c
+index 51379f7fc5d5..4911b8b53a8f 100644
+--- a/drivers/tee/tee_core.c
++++ b/drivers/tee/tee_core.c
+@@ -10,6 +10,7 @@
+ #include <linux/fs.h>
+ #include <linux/idr.h>
+ #include <linux/module.h>
++#include <linux/platform_device.h>
+ #include <linux/overflow.h>
+ #include <linux/slab.h>
+ #include <linux/tee_core.h>
+@@ -1185,6 +1186,26 @@ int tee_device_register(struct tee_device *teedev)
+ }
+ EXPORT_SYMBOL_GPL(tee_device_register);
+ 
++static void plat_tee_free(void *data)
++{
++	struct platform_device *plat_dev = data;
++
++	platform_device_unregister(plat_dev);
++}
++
++int tee_platform_device_register(struct tee_device *teedev, const char *teename)
++{
++	struct platform_device *plat_dev;
++
++	plat_dev = platform_device_register_data(&teedev->dev, teename,
++						 PLATFORM_DEVID_NONE, NULL, 0);
++	if (IS_ERR(plat_dev))
++		return PTR_ERR(plat_dev);
++
++	devm_add_action_or_reset(&teedev->dev, plat_tee_free, plat_dev);
++	return 0;
++}
++
+ void tee_device_put(struct tee_device *teedev)
+ {
+ 	mutex_lock(&teedev->mutex);
+diff --git a/include/linux/firmware/qcom/qcom_ice_tee.h b/include/linux/firmware/qcom/qcom_ice_tee.h
+new file mode 100644
+index 000000000000..a5906c5d4e39
+--- /dev/null
++++ b/include/linux/firmware/qcom/qcom_ice_tee.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
++ */
++#ifndef __QCOM_ICE_TEE
++#define __QCOM_ICE_TEE
++
++bool qcom_ice_tee_is_available(void);
++
++#endif /* __QCOM_ICE_TEE */
+diff --git a/include/linux/tee_core.h b/include/linux/tee_core.h
+index 1f3e5dad6d0d..bbc83e3bdb72 100644
+--- a/include/linux/tee_core.h
++++ b/include/linux/tee_core.h
+@@ -196,6 +196,15 @@ struct tee_device *tee_device_alloc(const struct tee_desc *teedesc,
+  */
+ int tee_device_register(struct tee_device *teedev);
+ 
++/**
++ * tee_platform_device_register() - Registers a TEE platform device
++ * @teedev:	Device to register
++ * @teename:	Name of the TEE the device represents
++ *
++ * @returns: < 0 on failure
++ */
++int tee_platform_device_register(struct tee_device *teedev, const char *teename);
++
+ /**
+  * tee_device_unregister() - Removes a TEE device
+  * @teedev:	Device to unregister
+-- 
+2.34.1
+

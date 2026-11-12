@@ -1,5 +1,6 @@
 require hexagon-dsp-binaries.inc
 
+FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
 LIC_FILES_CHKSUM = "\
     file://LICENSE.qcom;md5=56e86b6c508490dadc343f39468b5f5e \
     file://LICENSE.qcom-2;md5=165287851294f2fb8ac8cbc5e24b02b0 \
@@ -19,6 +20,7 @@ SRC_URI += "\
     git://github.com/linux-msm/dsp-binaries;protocol=https;branch=trunk;name=nord-hpass;destsuffix=dsp-binaries-nord-hpass \
     file://0001-nord-update-hpass-dynamic-modules-for-SA8797P-Ride-E.patch \
 "
+SRC_URI += "file://custom_dsp/"
 SRCREV_nord-hpass = "29ba5422bfd4ee595360738f8f62c3394ad1c146"
 SRCREV_FORMAT = "default_nord-hpass"
 
@@ -29,3 +31,24 @@ copy_nord_hpass_modules () {
 			${S}/${NORD_HPASS_DIR}/
 	done
 }
+
+SHIKRA_CDSP_DIR = "${datadir}/qcom/shikra/Qualcomm/Shikra-CQS-EVK/dsp/cdsp"
+CUSTOM_DSP_SRC  = "${UNPACKDIR}/custom_dsp"
+
+INHIBIT_SYSROOT_STRIP = "1"
+do_install:append() {
+    # (a) overwrite upstream bins in the Shikra CQS EVK cdsp dir
+    install -d ${D}${SHIKRA_CDSP_DIR}
+    install -m 0644 ${CUSTOM_DSP_SRC}/* ${D}${SHIKRA_CDSP_DIR}/
+
+    # (b) same bins into /usr/lib/dsp
+    install -d ${D}${nonarch_libdir}/dsp
+    install -m 0644 ${CUSTOM_DSP_SRC}/* ${D}${nonarch_libdir}/dsp/
+}
+
+# /usr/lib/dsp does not exist upstream -> it must be shipped by a package
+FILES:${PN}-qcom-shikra-cqs-evk-cdsp += "${nonarch_libdir}/dsp"
+
+# Hexagon ELFs under ${libdir} trip the host-arch / so-name QA checks
+INSANE_SKIP:${PN}-qcom-shikra-cqs-evk-cdsp += "arch dev-so libdir file-rdeps textrel staticdev"
+

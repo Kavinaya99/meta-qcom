@@ -1,6 +1,5 @@
 require recipes-security/optee/optee-os.inc
 
-<<<<<<< HEAD
 PV = "4.11.0-qcom-20261117+git"
 
 SRC_TAG = "tag=qcom-next-4.11-20261117"
