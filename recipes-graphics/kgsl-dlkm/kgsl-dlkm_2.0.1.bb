@@ -8,6 +8,7 @@ SRCREV = "81faf41bf87f42fe756da9414930a12ff6e292f7"
 SRC_URI = " \
     git://github.com/qualcomm-linux/kgsl.git;branch=gfx-kernel.le.0.0;protocol=https;tag=v${PV} \
     file://kgsl.rules \
+    file://0001-kgsl-optee-enable.patch \
 "
 
 do_install:append() {

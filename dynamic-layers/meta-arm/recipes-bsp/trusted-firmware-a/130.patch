@@ -1,0 +1,132 @@
+From a592396ea35b542423310cede81b577ff08a6f06 Mon Sep 17 00:00:00 2001
+From: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+Date: Tue, 17 Nov 2026 16:18:13 +0530
+Subject: [PATCH] fix(qti): use Shikra PON PS_HOLD reset configuration
+
+Use the Shikra PMIC arbiter v5.1 APID/channel register windows and configure the correct PON PS_HOLD reset controls and hard-reset type. Keep the legacy arbiter register windows as defaults for other platforms.
+
+Upstream-Status: Pending
+Change-Id: I3b7298381d161e8f523df7b949d2419244b9995a
+Link: https://review.trustedfirmware.org/c/TF-A/trusted-firmware-a/+/55766
+Signed-off-by: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+---
+ plat/qti/bruin/shikra/inc/shikra_def.h |  9 ++++++--
+ plat/qti/common/src/pm_ps_hold.c       |  5 ++--
+ plat/qti/common/src/spmi_arb.c         | 32 +++++++++++++++++++++-----
+ 3 files changed, 36 insertions(+), 10 deletions(-)
+
+diff --git a/plat/qti/bruin/shikra/inc/shikra_def.h b/plat/qti/bruin/shikra/inc/shikra_def.h
+index ce43163e70..7c79bc4e0f 100644
+--- a/plat/qti/bruin/shikra/inc/shikra_def.h
++++ b/plat/qti/bruin/shikra/inc/shikra_def.h
+@@ -185,8 +185,8 @@
+ /*----------------------------------------------------------------------------*/
+ /* LC PON register offsets */
+ /*----------------------------------------------------------------------------*/
+-#define PON_PS_HOLD_RESET_CTL			0x852
+-#define PON_PS_HOLD_RESET_CTL2			0x853
++#define PON_PS_HOLD_RESET_CTL			0x85A
++#define PON_PS_HOLD_RESET_CTL2			0x85B
+ /*----------------------------------------------------------------------------*/
+ /* APSS HM registers */
+ /*----------------------------------------------------------------------------*/
+@@ -201,6 +201,11 @@
+ /* PMIC SPMI arbitrator base address                                          */
+ /*----------------------------------------------------------------------------*/
+ #define PMIC_ARB_BASE				0x01C00000
++/* PMIC arbiter v5.1 register windows, relative to PMIC_ARB_BASE. */
++#define SPMI_ARB_APID_MAP_BASE			(PMIC_ARB_BASE + 0x00040900U)
++#define SPMI_ARB_CHNL_BASE			(PMIC_ARB_BASE + 0x00200000U)
++#define SPMI_ARB_CHNL_STRIDE			0x10000U
++#define SPMI_ARB_NUM_APID			512U
+ /*----------------------------------------------------------------------------*/
+ /* QTIMER registers                                                           */
+ /*----------------------------------------------------------------------------*/
+diff --git a/plat/qti/common/src/pm_ps_hold.c b/plat/qti/common/src/pm_ps_hold.c
+index 208345cc14..4caf8e2f23 100644
+--- a/plat/qti/common/src/pm_ps_hold.c
++++ b/plat/qti/common/src/pm_ps_hold.c
+@@ -14,7 +14,7 @@
+  * include other part numbers like PM6150.
+  */
+ 
+-#define RESET_TYPE_WARM_RESET		1
++#define RESET_TYPE_HARD_RESET		7
+ #define RESET_TYPE_SHUTDOWN		4
+ 
+ #define S2_RESET_EN			BIT(7)
+@@ -26,13 +26,14 @@ static void configure_ps_hold(uint32_t reset_type)
+ 	mdelay(1);
+ 
+ 	spmi_arb_write8(PON_PS_HOLD_RESET_CTL, reset_type);
++
+ 	spmi_arb_write8(PON_PS_HOLD_RESET_CTL2, S2_RESET_EN);
+ 	mdelay(1);
+ }
+ 
+ void qti_pmic_prepare_reset(void)
+ {
+-	configure_ps_hold(RESET_TYPE_WARM_RESET);
++	configure_ps_hold(RESET_TYPE_HARD_RESET);
+ }
+ 
+ void qti_pmic_prepare_shutdown(void)
+diff --git a/plat/qti/common/src/spmi_arb.c b/plat/qti/common/src/spmi_arb.c
+index 4213ed1b33..c2b38b8dea 100644
+--- a/plat/qti/common/src/spmi_arb.c
++++ b/plat/qti/common/src/spmi_arb.c
+@@ -8,19 +8,37 @@
+ #include <drivers/delay_timer.h>
+ #include <lib/mmio.h>
+ 
++#include <platform_def.h>
+ #include <spmi_arb.h>
+ 
+-#define REG_APID_MAP(apid)	(0x0C440900U + sizeof(uint32_t) * apid)
+-#define NUM_APID		((0x1100U - 0x900U) / sizeof(uint32_t))
++/* Default register map for legacy PMIC arbiters. */
++#ifndef SPMI_ARB_APID_MAP_BASE
++#define SPMI_ARB_APID_MAP_BASE	0x0C440900U
++#endif
++#ifndef SPMI_ARB_CHNL_BASE
++#define SPMI_ARB_CHNL_BASE	0x0C600000U
++#endif
++#ifndef SPMI_ARB_CHNL_STRIDE
++#define SPMI_ARB_CHNL_STRIDE	0x10000U
++#endif
++#ifndef SPMI_ARB_NUM_APID
++#define SPMI_ARB_NUM_APID	((0x1100U - 0x900U) / sizeof(uint32_t))
++#endif
++
++#define REG_APID_MAP(apid)	(SPMI_ARB_APID_MAP_BASE + \
++				 sizeof(uint32_t) * (apid))
++#define NUM_APID		SPMI_ARB_NUM_APID
+ 
+ #define PPID_MASK		(0xfffU << 8)
+ 
+-#define REG_ARB_CMD(apid)	(0x0C600000U + 0x10000U * apid)
++#define REG_ARB_CMD(apid)	(SPMI_ARB_CHNL_BASE + \
++				 SPMI_ARB_CHNL_STRIDE * (apid))
+ /* These are opcodes specific to this SPMI arbitrator, *not* SPMI commands. */
+ #define OPC_EXT_WRITEL		0
+ #define OPC_EXT_READL		1
+ 
+-#define REG_ARB_STATUS(apid)	(0x0C600008U + 0x10000U * apid)
++#define REG_ARB_STATUS(apid)	(SPMI_ARB_CHNL_BASE + 0x8U + \
++				 SPMI_ARB_CHNL_STRIDE * (apid))
+ #define ARB_STATUS_DONE		BIT(0)
+ #define ARB_STATUS_FAILURE	BIT(1)
+ #define ARB_STATUS_DENIED	BIT(2)
+@@ -29,8 +47,10 @@
+ /* Fake status to report driver errors. */
+ #define ARB_FAKE_STATUS_TIMEOUT	BIT(8)
+ 
+-#define REG_ARB_RDATA0(apid)	(0x0C600018U + 0x10000U * apid)
+-#define REG_ARB_WDATA0(apid)	(0x0C600010U + 0x10000U * apid)
++#define REG_ARB_RDATA0(apid)	(SPMI_ARB_CHNL_BASE + 0x18U + \
++				 SPMI_ARB_CHNL_STRIDE * (apid))
++#define REG_ARB_WDATA0(apid)	(SPMI_ARB_CHNL_BASE + 0x10U + \
++				 SPMI_ARB_CHNL_STRIDE * (apid))
+ 
+ static int addr_to_apid(uint32_t addr)
+ {

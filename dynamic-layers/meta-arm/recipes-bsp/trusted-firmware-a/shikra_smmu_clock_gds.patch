@@ -1,0 +1,164 @@
+Upstream-Status: Pending
+
+diff --git a/drivers/qti/clock/shikra/clock_hwio.h b/drivers/qti/clock/shikra/clock_hwio.h
+index a72234cd0..a8d51f7ea 100644
+--- a/drivers/qti/clock/shikra/clock_hwio.h
++++ b/drivers/qti/clock/shikra/clock_hwio.h
+@@ -113,6 +113,18 @@
+ #define GCC_TZ_USB20_SGDSCR_SW_OVERRIDE_BMSK	0x1U
+ #define GCC_TZ_USB20_SGDSCR_SW_OVERRIDE_SHFT	0U
+ 
++/* GCC TZ SMMU vote registers (CLK_CTL_BASE) */
++#define GCC_TZ_VOTE_GPU_SMMU_GDS	0x0147B03CU
++#define GCC_TZ_VOTE_GPU_SMMU_GDS_PWR_ON_BMSK	0x80000000U
++#define GCC_TZ_VOTE_GPU_SMMU_GDS_PWR_ON_SHFT	31U
++#define GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_BMSK	0x1U
++#define GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_SHFT	0U
++#define GCC_TZ_VOTE_GPU_SMMU_CLK	0x0147B06CU
++#define GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_OFF_BMSK	0x80000000U
++#define GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_OFF_SHFT	31U
++#define GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_ENABLE_BMSK	0x1U
++#define GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_ENABLE_SHFT	0U
++
+ /* GCC APCS-TZ enable-vote registers (CLK_CTL_BASE) */
+ #define GCC_APCS_TZ_GPLL_ENA_VOTE	0x0147A000U
+ #define GCC_APCS_TZ_GPLL_ENA_VOTE_GPLL0_BMSK	0x1U
+diff --git a/drivers/qti/clock/shikra/clock_init.c b/drivers/qti/clock/shikra/clock_init.c
+index ea6c28e99..5e314f58e 100644
+--- a/drivers/qti/clock/shikra/clock_init.c
++++ b/drivers/qti/clock/shikra/clock_init.c
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include <errno.h>
++#include <stdbool.h>
+ #include <stdint.h>
+ 
+ #include <arch_helpers.h>
+@@ -22,6 +23,10 @@
+ 
+ /* Bounded retry count for GDSC power-up/down completion polling. */
+ #define CLOCK_GDSC_POLL_RETRIES	500U
++#define CLOCK_STEP_DELAY_US		1U
++
++static bool gpu_smmu_gds_enabled_by_tfa;
++static bool gpu_smmu_clk_enabled_by_tfa;
+ 
+ static int clock_enable_gpu_gx_gdsc(void)
+ {
+@@ -93,6 +98,91 @@ static void clock_disable_gpu_gx_gdsc(void)
+ 			   1U << GPUCC_GPU_CC_GX_DOMAIN_MISC_GPU_GX_GMEM_CLAMP_IO_SHFT);
+ }
+ 
++static int clock_enable_gpu_smmu_gds(void)
++{
++	uint32_t retry = CLOCK_GDSC_POLL_RETRIES;
++
++	if ((mmio_read_32(GCC_TZ_VOTE_GPU_SMMU_GDS) &
++	     GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_BMSK) != 0U) {
++		gpu_smmu_gds_enabled_by_tfa = true;
++	}
++
++	mmio_clrsetbits_32(GCC_TZ_VOTE_GPU_SMMU_GDS,
++			   GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_BMSK,
++			   0U << GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_SHFT);
++	while (((mmio_read_32(GCC_TZ_VOTE_GPU_SMMU_GDS) &
++		 GCC_TZ_VOTE_GPU_SMMU_GDS_PWR_ON_BMSK) == 0U) &&
++	       (--retry > 0U)) {
++		udelay(CLOCK_STEP_DELAY_US);
++	}
++
++	if (retry == 0U) {
++		ERROR("Clock: GPU SMMU GDS stays off\n");
++		return -ETIMEDOUT;
++	}
++
++	return 0;
++}
++
++static int clock_enable_gpu_smmu_clk(void)
++{
++	uint32_t retry = CLOCK_GDSC_POLL_RETRIES;
++
++	if ((mmio_read_32(GCC_TZ_VOTE_GPU_SMMU_CLK) &
++	     GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_ENABLE_BMSK) == 0U) {
++		gpu_smmu_clk_enabled_by_tfa = true;
++	}
++
++	mmio_setbits_32(GCC_TZ_VOTE_GPU_SMMU_CLK,
++			GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_ENABLE_BMSK);
++	while (((mmio_read_32(GCC_TZ_VOTE_GPU_SMMU_CLK) &
++		 GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_OFF_BMSK) != 0U) &&
++	       (--retry > 0U)) {
++		udelay(CLOCK_STEP_DELAY_US);
++	}
++
++	if (retry == 0U) {
++		ERROR("Clock: GPU SMMU clock stays off\n");
++		return -ETIMEDOUT;
++	}
++
++	return 0;
++}
++
++static void clock_disable_gpu_smmu_clk(void)
++{
++	if (!gpu_smmu_clk_enabled_by_tfa) {
++		return;
++	}
++
++	mmio_clrbits_32(GCC_TZ_VOTE_GPU_SMMU_CLK,
++			GCC_TZ_VOTE_GPU_SMMU_CLK_CLK_ENABLE_BMSK);
++	gpu_smmu_clk_enabled_by_tfa = false;
++}
++
++static void clock_disable_gpu_smmu_gds(void)
++{
++	uint32_t retry = CLOCK_GDSC_POLL_RETRIES;
++
++	if (!gpu_smmu_gds_enabled_by_tfa) {
++		return;
++	}
++
++	mmio_setbits_32(GCC_TZ_VOTE_GPU_SMMU_GDS,
++			GCC_TZ_VOTE_GPU_SMMU_GDS_SW_COLLAPSE_BMSK);
++	while (((mmio_read_32(GCC_TZ_VOTE_GPU_SMMU_GDS) &
++		 GCC_TZ_VOTE_GPU_SMMU_GDS_PWR_ON_BMSK) != 0U) &&
++	       (--retry > 0U)) {
++		udelay(CLOCK_STEP_DELAY_US);
++	}
++
++	if (retry == 0U) {
++		WARN("Clock: GPU SMMU GDS power-down timed out\n");
++	}
++
++	gpu_smmu_gds_enabled_by_tfa = false;
++}
++
+ int clock_init_image(struct clock_drv_ctxt *drv_ctxt)
+ {
+ 	int ret;
+@@ -120,6 +210,14 @@ int clock_init_image(struct clock_drv_ctxt *drv_ctxt)
+ 			   1U << GCC_APCS_TZ_CLOCK_BRANCH_ENA_VOTE_QDSS_CFG_AHB_CLK_ENA_SHFT);
+ 
+ 	if (!chipinfo_is_part_disabled(CHIPINFO_PART_GPU, 0U)) {
++		if (clock_enable_gpu_smmu_gds() != 0) {
++			return -ETIMEDOUT;
++		}
++
++		if (clock_enable_gpu_smmu_clk() != 0) {
++			return -ETIMEDOUT;
++		}
++
+ 		if (clock_enable_gpu_gx_gdsc() != 0) {
+ 			ERROR("Clock: GPU GX GDSC enable failed\n");
+ 			return -ETIMEDOUT;
+@@ -233,6 +331,8 @@ int clock_post_init_image(struct clock_drv_ctxt *drv_ctxt)
+ 	/* Restore clocks enabled during init to their original state. */
+ 	if (!chipinfo_is_part_disabled(CHIPINFO_PART_GPU, 0U)) {
+ 		clock_disable_gpu_gx_gdsc();
++		clock_disable_gpu_smmu_clk();
++		clock_disable_gpu_smmu_gds();
+ 	}
+ 
+ 	ret = clock_group_disable(CLOCK_GROUP_QDSS);

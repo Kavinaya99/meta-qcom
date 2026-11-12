@@ -1,6 +1,13 @@
+FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # To make the layer pass yocto-check-layer only inherit update-alternatives when building for qualcomm
 ALTERNATIVES_CLASS = ""
 ALTERNATIVES_CLASS:qcom = "update-alternatives"
+
+SRC_URI += "file://cdsp.mbn"
+
+do_install:append() {
+	install -m 0644 ${UNPACKDIR}/cdsp.mbn ${D}${firmwaredir}/qcom/shikra/cdsp.mbn
+}
 
 inherit_defer ${ALTERNATIVES_CLASS}
 

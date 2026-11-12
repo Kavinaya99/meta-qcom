@@ -1,0 +1,25 @@
+From f16e1a4eee300ba665550b878d1f3934555779a0 Mon Sep 17 00:00:00 2001
+From: Gopinath Sekar <gopinath.sekar@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 19:29:54 +0530
+Subject: [PATCH] board: qualcomm: add Volume Down fastboot shortcut
+
+Map the Volume Down button to the fastboot command. On platforms where
+the key is configured through the PON RESIN button node in the device
+tree, holding Volume Down during U-Boot startup enters fastboot mode.
+
+Upstream-Status: Pending
+Signed-off-by: Gopinath Sekar <gopinath.sekar@oss.qualcomm.com>
+---
+ board/qualcomm/default.env | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/board/qualcomm/default.env b/board/qualcomm/default.env
+index e7ecb6ce0a2b..347ba5b9340c 100644
+--- a/board/qualcomm/default.env
++++ b/board/qualcomm/default.env
+@@ -9,3 +9,5 @@ bootmenu_1=Enable fastboot mode=run fastboot
+ bootmenu_2=Reset device=reset
+ menucmd=bootmenu
+ bootcmd=run do_boot
++button_cmd_0_name=Volume Down
++button_cmd_0=run fastboot

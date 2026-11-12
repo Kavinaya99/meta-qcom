@@ -78,6 +78,7 @@ SRC_URI += " \
     ${@bb.utils.contains('MACHINE_FEATURES', 'kvm', 'file://gunyah-exit.cfg', 'file://no-gunyah-exit.cfg', d)} \
     ${@bb.utils.contains('SPL_SIGN_ENABLE', '1', 'file://spl-fit-signature.cfg', '', d)} \
     file://qc_sec.mbn \
+    file://224.patch \
 "
 
 python __anonymous() {
