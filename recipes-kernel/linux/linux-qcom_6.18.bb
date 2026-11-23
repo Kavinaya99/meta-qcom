@@ -32,6 +32,16 @@ KERNEL_LOCALVERSION ?= "${@qcom_kernel_localversion(d)}"
 SRC_URI = " \
     git://github.com/qualcomm-linux/kernel.git;${SRCBRANCH};protocol=https \
     file://0001-tools-use-basename-to-identify-file-in-gen-mach-type.patch \
+    file://1260.patch \
+    file://0001-soc-qcom-ice-Add-TZ-agnostic-re-direction-functions.patch \
+    file://0002-firmware-qcom_scm-Transition-to-ICE-TZ-agnostic-oper.patch \
+    file://0003-firmware-qcom-Add-a-TEE-bus-based-ICE-back-end.patch \
+    file://0004-tee-optee-Register-TEE-devices-on-the-platform-bus.patch \
+    file://0005-soc-qcom-ice-Migrate-to-the-TZ-agnostic-ICE-APIs.patch \
+    file://0006-firmware-qcom-scm-Drop-exported-ICE-wrapper-function.patch \
+    file://1484.patch \
+    file://1506.patch \
+    file://1504.patch \
 "
 
 # Additional kernel configs.

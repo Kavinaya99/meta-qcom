@@ -1,0 +1,233 @@
+From 63ac77a33a5564362c4d1a50c1cd0bb8a1b63f86 Mon Sep 17 00:00:00 2001
+From: Harshal Dev <harshal.dev@oss.qualcomm.com>
+Date: Fri, 6 Nov 2026 20:52:32 +0530
+Subject: [PATCH 1/6] soc: qcom: ice: Add TZ agnostic re-direction functions
+
+Qualcomm platforms such as the IQ-9075 EVK now boot with both QTEE and
+OPTEE. However, the Qualcomm Inline Crypto Engine (ICE) driver currently
+only makes SCM calls into QTEE. With the arrival of ICE support on OPTEE
+for Qualcomm platforms the ICE driver should call into the correct Trust
+Zone (TZ) at runtime to request programming of the secure interfaces on
+the hardware block.
+
+Add TZ agnostic re-direction functions for all the current QTEE SCM calls
+which can route the calls to either an SCM or TEE bus-based secure back
+end when registered with ICE.
+
+Upstream-Status: Pending
+Signed-off-by: Harshal Dev <harshal.dev@oss.qualcomm.com>
+---
+ drivers/soc/qcom/ice.c | 124 +++++++++++++++++++++++++++++++++++++++++
+ include/soc/qcom/ice.h |  56 +++++++++++++++++++
+ 2 files changed, 180 insertions(+)
+
+diff --git a/drivers/soc/qcom/ice.c b/drivers/soc/qcom/ice.c
+index f75e5e6b2cca..6f83a263af42 100644
+--- a/drivers/soc/qcom/ice.c
++++ b/drivers/soc/qcom/ice.c
+@@ -120,6 +120,130 @@ struct qcom_ice {
+ static DEFINE_XARRAY(ice_handles);
+ static DEFINE_MUTEX(ice_mutex);
+ 
++static struct qcom_ice_tz_ops *ice_tz_ops;
++
++static bool qcom_ice_tz_ops_registered(void)
++{
++	/*
++	 * The barrier is intended to synchronize the data stores for the
++	 * ice_tz_ops data structure when client drivers (UFS/SDHC) are in
++	 * parallel checking for ICE service availability.
++	 */
++	return !!smp_load_acquire(&ice_tz_ops);
++}
++
++static bool qcom_ice_tz_is_available(void)
++{
++	return qcom_scm_is_available();
++}
++
++static int qcom_ice_tz_invalidate_key(u32 index)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_invalidate_key(ops->dev, index);
++}
++
++static int qcom_ice_tz_set_key(u32 index, const u8 *key, u32 key_size,
++			       enum qcom_ice_cipher cipher,
++			       u32 data_unit_size)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_set_key(ops->dev, index, key, key_size, cipher,
++				data_unit_size);
++}
++
++static bool qcom_ice_tz_has_wrapped_key_support(void)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_has_wrapped_key_support(ops->dev);
++}
++
++static int qcom_ice_tz_derive_sw_secret(const u8 *eph_key,
++					size_t eph_key_size, u8 *sw_secret,
++					size_t sw_secret_size)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_derive_sw_secret(ops->dev, eph_key, eph_key_size,
++					 sw_secret, sw_secret_size);
++}
++
++static int qcom_ice_tz_generate_key(u8 *lt_key, size_t lt_key_size)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_generate_key(ops->dev, lt_key, lt_key_size);
++}
++
++static int qcom_ice_tz_prepare_key(const u8 *lt_key, size_t lt_key_size,
++				   u8 *eph_key, size_t eph_key_size)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_prepare_key(ops->dev, lt_key, lt_key_size, eph_key,
++				    eph_key_size);
++}
++
++static int qcom_ice_tz_import_key(const u8 *raw_key, size_t raw_key_size,
++				  u8 *lt_key, size_t lt_key_size)
++{
++	struct qcom_ice_tz_ops *ops;
++
++	ops = ice_tz_ops;
++	if (!ops)
++		return -ENODEV;
++
++	return ops->ice_import_key(ops->dev, raw_key, raw_key_size, lt_key,
++				   lt_key_size);
++}
++
++int qcom_ice_tz_ops_register(struct qcom_ice_tz_ops *ops)
++{
++	if (!qcom_ice_tz_ops_registered())
++		/* Paired with smp_load_acquire() in qcom_ice_tz_ops_registered() */
++		smp_store_release(&ice_tz_ops, ops);
++	else
++		return -EBUSY;
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qcom_ice_tz_ops_register);
++
++void qcom_ice_tz_ops_unregister(struct qcom_ice_tz_ops *ops)
++{
++	if (READ_ONCE(ice_tz_ops) == ops)
++		/* Paired with smp_load_acquire() in qcom_ice_tz_ops_registered() */
++		smp_store_release(&ice_tz_ops, NULL);
++}
++EXPORT_SYMBOL_GPL(qcom_ice_tz_ops_unregister);
++
+ static bool qcom_ice_check_supported(struct qcom_ice *ice)
+ {
+ 	u32 regval = qcom_ice_readl(ice, QCOM_ICE_REG_VERSION);
+diff --git a/include/soc/qcom/ice.h b/include/soc/qcom/ice.h
+index 4eb58a264d41..cc25e5e37907 100644
+--- a/include/soc/qcom/ice.h
++++ b/include/soc/qcom/ice.h
+@@ -10,6 +10,47 @@
+ #include <linux/types.h>
+ 
+ struct qcom_ice;
++struct device;
++
++enum qcom_ice_cipher {
++	QCOM_ICE_CIPHER_AES_128_XTS = 0,
++	QCOM_ICE_CIPHER_AES_128_CBC = 1,
++	QCOM_ICE_CIPHER_AES_256_XTS = 3,
++	QCOM_ICE_CIPHER_AES_256_CBC = 4,
++};
++
++/**
++ * struct qcom_ice_tz_ops - Qcom ICE TZ operations
++ * @drv_name:                    ICE TZ backend driver name.
++ * @dev:                         ICE TZ backend device.
++ * @ice_invalidate_key:          Invalidate keyslot callback.
++ * @ice_set_key:                 Program keyslot callback.
++ * @ice_has_wrapped_key_support: Wrapped-key support callback.
++ * @ice_derive_sw_secret:        Derive software secret callback.
++ * @ice_generate_key:            Generate wrapped key callback.
++ * @ice_prepare_key:             Prepare wrapped key callback.
++ * @ice_import_key:              Import wrapped key callback.
++ */
++struct qcom_ice_tz_ops {
++	const char *drv_name;
++	struct device *dev;
++	int (*ice_invalidate_key)(struct device *dev, u32 index);
++	int (*ice_set_key)(struct device *dev, u32 index, const u8 *key,
++			   u32 key_size, enum qcom_ice_cipher cipher,
++			   u32 data_unit_size);
++	bool (*ice_has_wrapped_key_support)(struct device *dev);
++	int (*ice_derive_sw_secret)(struct device *dev, const u8 *eph_key,
++				    size_t eph_key_size, u8 *sw_secret,
++				    size_t sw_secret_size);
++	int (*ice_generate_key)(struct device *dev, u8 *lt_key,
++				size_t lt_key_size);
++	int (*ice_prepare_key)(struct device *dev, const u8 *lt_key,
++			       size_t lt_key_size, u8 *eph_key,
++			       size_t eph_key_size);
++	int (*ice_import_key)(struct device *dev, const u8 *raw_key,
++			      size_t raw_key_size, u8 *lt_key,
++			      size_t lt_key_size);
++};
+ 
+ int qcom_ice_enable(struct qcom_ice *ice);
+ int qcom_ice_resume(struct qcom_ice *ice);
+@@ -33,4 +74,19 @@ struct qcom_ice *devm_of_qcom_ice_get(struct device *dev);
+ int qcom_ice_scale_clk(struct qcom_ice *ice, unsigned long target_freq,
+ 		       bool round_ceil);
+ 
++#ifdef CONFIG_QCOM_INLINE_CRYPTO_ENGINE
++int qcom_ice_tz_ops_register(struct qcom_ice_tz_ops *ops);
++void qcom_ice_tz_ops_unregister(struct qcom_ice_tz_ops *ops);
++#else
++static inline int qcom_ice_tz_ops_register(struct qcom_ice_tz_ops *__unused)
++{
++	return 0;
++}
++
++static inline
++void qcom_ice_tz_ops_unregister(struct qcom_ice_tz_ops *__unused)
++{
++}
++#endif /* CONFIG_QCOM_INLINE_CRYPTO_ENGINE */
++
+ #endif /* __QCOM_ICE_H__ */
+-- 
+2.34.1
+

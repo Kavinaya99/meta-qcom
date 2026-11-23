@@ -1,0 +1,34 @@
+From ef16f6c0084a70bf6c327ef6bf10cc023c97c34a Mon Sep 17 00:00:00 2001
+From: Lokesh Kumar <lok@qti.qualcomm.com>
+Date: Thu, 12 Nov 2026 01:25:46 +0530
+Subject: [PATCH 2/5] PENDING: drm/msm/a7xx: Don't fail if the GPU init regs
+ SCM call is absent
+
+Some secure world images don't implement qcom_scm_gpu_init_regs(). In
+that case raytracing/fastblend/lpac simply stay disabled via the fuse
+register, so skip the call instead of failing GPU init.
+
+Upstream-Status: Pending
+---
+ drivers/gpu/drm/msm/adreno/a6xx_gpu.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+index 5822c4d2c6ea..fe334b816ef7 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -2118,6 +2118,14 @@ static int a7xx_cx_mem_init(struct a6xx_gpu *a6xx_gpu)
+ 			return 0;
+ 		}
+ 
++		/*
++		 * Some secure world implementations do not provide this call.
++		 * Nothing programs the fuse register then, so leave the
++		 * features it enables, such as raytracing, disabled.
++		 */
++		if (!qcom_scm_gpu_init_regs_is_available())
++			return 0;
++
+ 		ret = qcom_scm_gpu_init_regs(QCOM_SCM_GPU_ALWAYS_EN_REQ |
+ 					     QCOM_SCM_GPU_TSENSE_EN_REQ);
+ 		if (ret)

@@ -1,0 +1,334 @@
+From 399575dc301be2176804ec2bb006d5f31fe26f89 Mon Sep 17 00:00:00 2001
+From: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+Date: Sat, 21 Nov 2026 20:18:09 +0530
+Subject: [PATCH 1/3] feat(qti): add PSCI SYSTEM_RESET2 support
+
+Platforms using the common QTI PM backend (qti_pm.c) only implement
+SYSTEM_RESET and SYSTEM_OFF. Clients that need a vendor-defined reset
+sub-type - e.g. flagging the next boot as a specific recovery mode via
+a reboot-reason cookie - have no PSCI callback to invoke, since
+system_reset2 is left unset in plat_qti_psci_pm_ops.
+
+Add qti_system_reset2(), wired up as .system_reset2, following the
+semantics of downstream TZ's psci_system_reset2(): only vendor resets
+are accepted (the architectural warm reset is rejected, matching
+downstream behavior), and the vendor reset_type selects a PMIC PON
+warm or hard reset via qti_pmic_prepare_reset2(). Bit 16 of the vendor
+payload optionally stashes a reboot-reason cookie into a PMIC PON
+scratch register or a TCSR scratch register, mirroring downstream TZ's
+psci_target_system_reset2() ASIC hook.
+
+qti_pm.c is shared by every hoya and bruin platform, so this enables
+SYSTEM_RESET2 across the board, but the cookie-stash scratch registers
+(PON_SOFT_RB_SPARE, TCSR_BOOT_MISC_DETECT) are only defined for shikra
+so far; qti_pmic_prepare_reset2() guards that part behind
+#if defined(...) so platforms without them keep building.
+
+Upstream-Status: Pending
+Assisted-by: Claude:claude-sonnet-5
+Signed-off-by: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+---
+ plat/qti/bruin/shikra/inc/shikra_def.h |  5 +++
+ plat/qti/common/inc/qti_plat.h         |  1 +
+ plat/qti/common/src/pm_ps_hold.c       | 52 +++++++++++++++++++++++++-
+ plat/qti/common/src/qti_pm.c           | 25 +++++++++++++
+ 4 files changed, 82 insertions(+), 1 deletion(-)
+
+diff --git a/plat/qti/bruin/shikra/inc/shikra_def.h b/plat/qti/bruin/shikra/inc/shikra_def.h
+index 3c97e6d07..62f9b6b1d 100644
+--- a/plat/qti/bruin/shikra/inc/shikra_def.h
++++ b/plat/qti/bruin/shikra/inc/shikra_def.h
+@@ -187,6 +187,11 @@
+ /*----------------------------------------------------------------------------*/
+ #define PON_PS_HOLD_RESET_CTL			0x85A
+ #define PON_PS_HOLD_RESET_CTL2			0x85B
++#define PON_SOFT_RB_SPARE			0x88F
++/*----------------------------------------------------------------------------*/
++/* TCSR reboot-reason scratch register (CORE_TOP_CSR_BASE + 0xC0000 + 0x13000) */
++/*----------------------------------------------------------------------------*/
++#define TCSR_BOOT_MISC_DETECT			0x003D3000
+ /*----------------------------------------------------------------------------*/
+ /* APSS HM registers */
+ /*----------------------------------------------------------------------------*/
+diff --git a/plat/qti/common/inc/qti_plat.h b/plat/qti/common/inc/qti_plat.h
+index a48a06c2c..c74f73909 100644
+--- a/plat/qti/common/inc/qti_plat.h
++++ b/plat/qti/common/inc/qti_plat.h
+@@ -49,6 +49,7 @@ void gic_set_spi_routing(unsigned int id, unsigned int irm, u_register_t mpidr);
+ 
+ void qti_pmic_prepare_reset(void);
+ void qti_pmic_prepare_shutdown(void);
++int qti_pmic_prepare_reset2(uint32_t reset_type, uint64_t cookie);
+ 
+ int plat_qti_pwr_domain_on(u_register_t mpidr, int core_pos);
+ void plat_qti_pwr_domain_on_finish(int core_pos, const uint8_t *states);
+diff --git a/plat/qti/common/src/pm_ps_hold.c b/plat/qti/common/src/pm_ps_hold.c
+index b3f8040a6..96e3add23 100644
+--- a/plat/qti/common/src/pm_ps_hold.c
++++ b/plat/qti/common/src/pm_ps_hold.c
+@@ -5,6 +5,8 @@
+  */
+ 
+ #include <drivers/delay_timer.h>
++#include <lib/mmio.h>
++#include <lib/psci/psci.h>
+ 
+ #include <qti_plat.h>
+ #include <spmi_arb.h>
+@@ -14,11 +16,26 @@
+  * include other part numbers like PM6150.
+  */
+ 
+-#define RESET_TYPE_HARD_RESET		7
++#define RESET_TYPE_WARM_RESET		1
+ #define RESET_TYPE_SHUTDOWN		4
++#define RESET_TYPE_HARD_RESET		7
+ 
+ #define S2_RESET_EN			BIT(7)
+ 
++/*
++ * Vendor SYSTEM_RESET2 sub-types, selected by the low bits of the PSCI
++ * reset_type argument. Mirrors the sub-types of downstream TZ's
++ * pm_app_pon_reset_cfg_type enum that shikra's PMIC PON config actually
++ * distinguishes; any other value is rejected as unsupported.
++ */
++#define QTI_PON_CFG_WARM_RESET		0
++#define QTI_PON_CFG_HARD_RESET		1
++
++#define QTI_RESET2_TYPE_MASK		0x7fU
++
++/* Set when the vendor payload carries a reboot-reason cookie update. */
++#define QTI_RESET2_COOKIE		BIT(16)
++
+ static void configure_ps_hold(uint32_t reset_type)
+ {
+ 	/* QTI recommends disabling reset for 10 cycles before reconfiguring. */
+@@ -39,3 +56,36 @@ void qti_pmic_prepare_shutdown(void)
+ {
+ 	configure_ps_hold(RESET_TYPE_SHUTDOWN);
+ }
++
++int qti_pmic_prepare_reset2(uint32_t reset_type, uint64_t cookie)
++{
++	uint32_t vendor_type = reset_type & QTI_RESET2_TYPE_MASK;
++
++#if defined(PON_SOFT_RB_SPARE) && defined(TCSR_BOOT_MISC_DETECT)
++	/*
++	 * Stash the reboot-reason cookie the same way downstream TZ does, so
++	 * bootloader/HLOS reboot-reason detection keeps working: bit 16
++	 * selects a PMIC PON scratch-register write, otherwise the cookie
++	 * goes into the TCSR scratch register. The scratch registers this
++	 * relies on are only defined for targets that need this behavior.
++	 */
++	if ((reset_type & QTI_RESET2_COOKIE) != 0U) {
++		spmi_arb_write8(PON_SOFT_RB_SPARE, (uint8_t)(cookie << 1));
++		mmio_write_32(TCSR_BOOT_MISC_DETECT, 0);
++	} else if (cookie != 0U) {
++		mmio_write_32(TCSR_BOOT_MISC_DETECT, (uint32_t)cookie);
++		spmi_arb_write8(PON_SOFT_RB_SPARE, 0);
++	}
++#endif
++
++	switch (vendor_type) {
++	case QTI_PON_CFG_WARM_RESET:
++		configure_ps_hold(RESET_TYPE_WARM_RESET);
++		return PSCI_E_SUCCESS;
++	case QTI_PON_CFG_HARD_RESET:
++		configure_ps_hold(RESET_TYPE_HARD_RESET);
++		return PSCI_E_SUCCESS;
++	default:
++		return PSCI_E_NOT_SUPPORTED;
++	}
++}
+diff --git a/plat/qti/common/src/qti_pm.c b/plat/qti/common/src/qti_pm.c
+index 65136d682..101a8ec26 100644
+--- a/plat/qti/common/src/qti_pm.c
++++ b/plat/qti/common/src/qti_pm.c
+@@ -203,6 +203,30 @@ __dead2 void qti_system_reset(void)
+ 	assert_ps_hold();
+ }
+ 
++/*
++ * qti_system_reset2
++ *
++ * Only vendor-specific reset types are supported, matching downstream TZ's
++ * behavior: the architectural warm reset (is_vendor == 0) is rejected.
++ * On a supported vendor type this does not return - PS_HOLD is deasserted
++ * and the SoC resets.
++ */
++static int qti_system_reset2(int is_vendor, int reset_type, u_register_t cookie)
++{
++	int ret;
++
++	if (!is_vendor) {
++		return PSCI_E_NOT_SUPPORTED;
++	}
++
++	ret = qti_pmic_prepare_reset2((uint32_t)reset_type, (uint64_t)cookie);
++	if (ret != PSCI_E_SUCCESS) {
++		return ret;
++	}
++
++	assert_ps_hold();
++}
++
+ void qti_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ {
+ 	int i;
+@@ -255,6 +279,7 @@ const plat_psci_ops_t plat_qti_psci_pm_ops = {
+ 	.pwr_domain_suspend_finish = qti_node_suspend_finish,
+ 	.system_off = qti_system_off,
+ 	.system_reset = qti_system_reset,
++	.system_reset2 = qti_system_reset2,
+ 	.get_node_hw_state = NULL,
+ 	.translate_power_state_by_mpidr = NULL,
+ 	.get_sys_suspend_power_state = qti_get_sys_suspend_power_state,
+
+From 03d5554f9e8cb9ddb3ae2891e1c53b46b236d66a Mon Sep 17 00:00:00 2001
+From: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+Date: Sat, 21 Nov 2026 20:18:23 +0530
+Subject: [PATCH 2/3] feat(qti): extend reboot-reason cookie stash to
+ lemans/kodiak/monaco
+
+qti_pmic_prepare_reset2() only stashes the SYSTEM_RESET2 reboot-reason
+cookie (PON_SOFT_RB_SPARE / TCSR_BOOT_MISC_DETECT) on platforms that
+define both registers, which so far was shikra alone.
+
+Downstream TZ's psci_target_system_reset2() ASIC hooks for lemans,
+kodiak and monaco use the same cookie-stash scheme as shikra, but with
+a different PMIC PON scratch register: reset_info_config.addr is
+0x7148 for all three (vs. shikra's 0x88F), consistent with their PON
+block using different offsets for PON_PS_HOLD_RESET_CTL/CTL2 (0x852/
+0x853 vs. shikra's 0x85A/0x85B). TCSR_BOOT_MISC_DETECT is their shared
+QTI_CORE_TOP_CSR_BASE (0x01f00000) plus the fixed 0xC0000 + 0x13000
+offset, giving 0x1FD3000 - already present and used at that same value
+in lemans's and kodiak's qti_secure_io_cfg.h.
+
+Define both registers for lemans_def.h, kodiak_def.h (covers rb3gen2
+and sc7280_chrome) and monaco_def.h (covers monza), so these platforms
+get the cookie-stash behavior instead of compiling it out.
+
+qcs615 and sc7180 are left out: downstream TZ has no ASIC
+implementation for either, and neither defines QTI_CORE_TOP_CSR_BASE,
+so there's no way to derive TCSR_BOOT_MISC_DETECT, nor a reference
+reset_info_config.addr for PON_SOFT_RB_SPARE.
+
+Assisted-by: Claude:claude-sonnet-5
+Signed-off-by: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+---
+ plat/qti/hoya/kodiak/inc/kodiak_def.h | 5 +++++
+ plat/qti/hoya/lemans/inc/lemans_def.h | 5 +++++
+ plat/qti/hoya/monaco/inc/monaco_def.h | 6 ++++++
+ 3 files changed, 16 insertions(+)
+
+diff --git a/plat/qti/hoya/kodiak/inc/kodiak_def.h b/plat/qti/hoya/kodiak/inc/kodiak_def.h
+index 9d02329ca..af09dd433 100644
+--- a/plat/qti/hoya/kodiak/inc/kodiak_def.h
++++ b/plat/qti/hoya/kodiak/inc/kodiak_def.h
+@@ -47,6 +47,7 @@
+ /*----------------------------------------------------------------------------*/
+ #define PON_PS_HOLD_RESET_CTL			0x852
+ #define PON_PS_HOLD_RESET_CTL2			0x853
++#define PON_SOFT_RB_SPARE			0x7148
+ /*----------------------------------------------------------------------------*/
+ /* APSS HM registers */
+ /*----------------------------------------------------------------------------*/
+@@ -67,6 +68,10 @@
+ #define QTI_CORE_TOP_CSR_BASE			0x01f00000
+ #define QTI_CORE_TOP_CSR_BASE_SIZE		0x00100000
+ /*----------------------------------------------------------------------------*/
++/* TCSR reboot-reason scratch register (CORE_TOP_CSR_BASE + 0xC0000 + 0x13000) */
++/*----------------------------------------------------------------------------*/
++#define TCSR_BOOT_MISC_DETECT			0x1FD3000
++/*----------------------------------------------------------------------------*/
+ /* Platform-specific SMMU config base addresses */
+ /*----------------------------------------------------------------------------*/
+ #define QTI_SMMU_CFG_BASE			0x15000000
+diff --git a/plat/qti/hoya/lemans/inc/lemans_def.h b/plat/qti/hoya/lemans/inc/lemans_def.h
+index bfadf1f6c..49cc3ddbd 100644
+--- a/plat/qti/hoya/lemans/inc/lemans_def.h
++++ b/plat/qti/hoya/lemans/inc/lemans_def.h
+@@ -64,6 +64,7 @@
+ /*----------------------------------------------------------------------------*/
+ #define PON_PS_HOLD_RESET_CTL			0x852
+ #define PON_PS_HOLD_RESET_CTL2			0x853
++#define PON_SOFT_RB_SPARE			0x7148
+ /*----------------------------------------------------------------------------*/
+ /* APSS HM registers */
+ /*----------------------------------------------------------------------------*/
+@@ -80,6 +81,10 @@
+ #define QTI_CORE_TOP_CSR_BASE			0x01f00000
+ #define QTI_CORE_TOP_CSR_BASE_SIZE		0x00100000
+ /*----------------------------------------------------------------------------*/
++/* TCSR reboot-reason scratch register (CORE_TOP_CSR_BASE + 0xC0000 + 0x13000) */
++/*----------------------------------------------------------------------------*/
++#define TCSR_BOOT_MISC_DETECT			0x1FD3000
++/*----------------------------------------------------------------------------*/
+ /* QTIMER registers                                                           */
+ /*----------------------------------------------------------------------------*/
+ #define QTI_QTIMER_BASE				0x17C20000
+diff --git a/plat/qti/hoya/monaco/inc/monaco_def.h b/plat/qti/hoya/monaco/inc/monaco_def.h
+index 4b5442252..14873a8d3 100644
+--- a/plat/qti/hoya/monaco/inc/monaco_def.h
++++ b/plat/qti/hoya/monaco/inc/monaco_def.h
+@@ -43,6 +43,7 @@
+ /*----------------------------------------------------------------------------*/
+ #define PON_PS_HOLD_RESET_CTL			0x852
+ #define PON_PS_HOLD_RESET_CTL2			0x853
++#define PON_SOFT_RB_SPARE			0x7148
+ 
+ /*----------------------------------------------------------------------------*/
+ /* APSS HM, AOSS and CORE_TOP_CSR registers */
+@@ -51,6 +52,11 @@
+ #define QTI_AOSS_BASE				0x0b000000
+ #define QTI_CORE_TOP_CSR_BASE			0x01f00000
+ 
++/*----------------------------------------------------------------------------*/
++/* TCSR reboot-reason scratch register (CORE_TOP_CSR_BASE + 0xC0000 + 0x13000) */
++/*----------------------------------------------------------------------------*/
++#define TCSR_BOOT_MISC_DETECT			0x1FD3000
++
+ /*----------------------------------------------------------------------------*/
+ /* QTIMER registers                                                           */
+ /*----------------------------------------------------------------------------*/
+
+From 2d71057fe0ad45491d33a4aa102157d3a3f247e4 Mon Sep 17 00:00:00 2001
+From: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+Date: Sat, 21 Nov 2026 20:33:08 +0530
+Subject: [PATCH 3/3] feat(qti): log SYSTEM_RESET2 parameters
+
+qti_pmic_prepare_reset2() silently acts on reset_type and cookie, so a
+failure to take the expected reset path (e.g. an unsupported vendor
+sub-type, or a cookie that didn't make it into HLOS's reboot-reason)
+leaves no trace to debug from.
+
+Log both parameters on entry.
+
+Assisted-by: Claude:claude-sonnet-5
+Signed-off-by: Dinesh Choudhary <idinesh@qti.qualcomm.com>
+---
+ plat/qti/common/src/pm_ps_hold.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/qti/common/src/pm_ps_hold.c b/plat/qti/common/src/pm_ps_hold.c
+index 96e3add23..c162da6f4 100644
+--- a/plat/qti/common/src/pm_ps_hold.c
++++ b/plat/qti/common/src/pm_ps_hold.c
+@@ -4,6 +4,7 @@
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
++#include <common/debug.h>
+ #include <drivers/delay_timer.h>
+ #include <lib/mmio.h>
+ #include <lib/psci/psci.h>
+@@ -61,6 +62,9 @@ int qti_pmic_prepare_reset2(uint32_t reset_type, uint64_t cookie)
+ {
+ 	uint32_t vendor_type = reset_type & QTI_RESET2_TYPE_MASK;
+ 
++	INFO("qti_pmic_prepare_reset2: reset_type=0x%x cookie=0x%llx\n",
++	     reset_type, (unsigned long long)cookie);
++
+ #if defined(PON_SOFT_RB_SPARE) && defined(TCSR_BOOT_MISC_DETECT)
+ 	/*
+ 	 * Stash the reboot-reason cookie the same way downstream TZ does, so

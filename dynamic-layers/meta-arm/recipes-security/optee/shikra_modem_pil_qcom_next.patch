@@ -1,0 +1,509 @@
+Upstream-Status: Pending
+
+diff --git a/core/arch/arm/plat-qcom/family/bruin/shikra/target.mk b/core/arch/arm/plat-qcom/family/bruin/shikra/target.mk
+index f8c04f86b..41d98bfc1 100644
+--- a/core/arch/arm/plat-qcom/family/bruin/shikra/target.mk
++++ b/core/arch/arm/plat-qcom/family/bruin/shikra/target.mk
+@@ -14,7 +14,7 @@ CFG_QCOM_HWKM ?= y
+ CFG_QCOM_PAS_PTA ?= y
+ 
+ ifeq ($(CFG_QCOM_PAS_PTA),y)
+-CFG_RESERVED_VASPACE_SIZE ?= (60 * 1024 * 1024)
++CFG_RESERVED_VASPACE_SIZE ?= (128 * 1024 * 1024)
+ CFG_IN_TREE_EARLY_TAS += qcom_pas/cff7d191-7ca0-4784-af13-48223b9a4fbe
+ CFG_QCOM_PAS_AUTH ?= y
+ endif
+diff --git a/core/arch/arm/plat-qcom/family/bruin/shikra/target_config.h b/core/arch/arm/plat-qcom/family/bruin/shikra/target_config.h
+index 7fc64252b..45029e772 100644
+--- a/core/arch/arm/plat-qcom/family/bruin/shikra/target_config.h
++++ b/core/arch/arm/plat-qcom/family/bruin/shikra/target_config.h
+@@ -44,6 +44,21 @@
+ #define IRIS_BASE			UL(0x05a00000)
+ #define IRIS_SIZE			ULL(0x00100000)
+ 
++#define MSS_BASE			UL(0x06080000)
++#define MSS_SIZE			UL(0x00010000)
++
++#define MSS_CORE_CC_BASE		UL(0x060c8000)
++#define MSS_CORE_CC_SIZE		UL(0x00002000)
++
++#define MSS_CC_BASE			UL(0x06180000)
++#define MSS_CC_SIZE			UL(0x00002000)
++
++#define GCC_MSS_RESTART_BASE		(GCC_BASE + UL(0x000a0000))
++#define GCC_MSS_RESTART_SIZE		UL(0x00001000)
++
++#define MSS_TCSR_HALT_BASE		UL(0x00363000)
++#define MSS_TCSR_HALT_SIZE		UL(0x00003000)
++
+ #define HWKM_ICE_BASE			HWKM_SDC1_SDCC_ICE_BASE
+ #define HWKM_ICE_SIZE			HWKM_SDC1_SDCC_ICE_SIZE
+ 
+diff --git a/core/drivers/clk/qcom/clk.c b/core/drivers/clk/qcom/clk.c
+index 788b0d6b7..e26c6b961 100644
+--- a/core/drivers/clk/qcom/clk.c
++++ b/core/drivers/clk/qcom/clk.c
+@@ -253,6 +253,7 @@ TEE_Result qcom_clock_enable(enum qcom_clk_group group)
+ 	case QCOM_CLKS_HPASS1:
+ 	case QCOM_CLKS_HPASS2:
+ 	case QCOM_CLKS_SOCCP:
++	case QCOM_CLKS_MODEM:
+ 		return qcom_clock_enable_pas(group);
+ 	default:
+ 		EMSG("Unsupported clock group %d", group);
+diff --git a/core/drivers/clk/qcom/platform/shikra/clock-pas.c b/core/drivers/clk/qcom/platform/shikra/clock-pas.c
+index a68e8cbde..189db902e 100644
+--- a/core/drivers/clk/qcom/platform/shikra/clock-pas.c
++++ b/core/drivers/clk/qcom/platform/shikra/clock-pas.c
+@@ -10,6 +10,7 @@
+ #include <mm/core_memprot.h>
+ #include <mm/core_mmu.h>
+ #include <platform_config.h>
++#include <stdbool.h>
+ #include <stdint.h>
+ #include <trace.h>
+ 
+@@ -20,6 +21,11 @@ register_phys_mem(MEM_AREA_IO_NSEC, GCC_BASE, GCC_SIZE);
+ register_phys_mem(MEM_AREA_IO_NSEC, CORE_TOP_CSR_BASE, CORE_TOP_CSR_SIZE);
+ register_phys_mem(MEM_AREA_IO_NSEC, MCU_MCU_CNOC_MASTER_BASE,
+ 		  MCU_MCU_CNOC_MASTER_SIZE);
++register_phys_mem(MEM_AREA_IO_SEC, MSS_BASE, MSS_SIZE);
++register_phys_mem(MEM_AREA_IO_SEC, MSS_CORE_CC_BASE, MSS_CORE_CC_SIZE);
++register_phys_mem(MEM_AREA_IO_SEC, MSS_CC_BASE, MSS_CC_SIZE);
++register_phys_mem(MEM_AREA_IO_SEC, GCC_MSS_RESTART_BASE, GCC_MSS_RESTART_SIZE);
++register_phys_mem(MEM_AREA_IO_SEC, MSS_TCSR_HALT_BASE, MSS_TCSR_HALT_SIZE);
+ 
+ /* Spark PLL register offsets, relative to the PLL register block base. */
+ static const struct qcom_pll_offsets spark_pll_offsets = {
+@@ -46,6 +52,31 @@ static const struct qcom_pll_config turing_q6_pll_cfg = {
+ 	.user_ctl_u = 0x4,
+ };
+ 
++/* MSS Spark PLL register offsets, relative to the PLL register block base. */
++static const struct qcom_pll_offsets mss_spark_pll_offsets = {
++	.mode = 0x0,
++	.l_val = 0x4,
++	.alpha_val = 0x8,
++	.alpha_val_u = 0xc,
++	.test_ctl = 0x10,
++	.test_ctl_u = 0x14,
++	.user_ctl = 0x18,
++	.user_ctl_u = 0x1c,
++	.config_ctl = 0x20,
++};
++
++static const struct qcom_pll_config mss_q6_pll_cfg = {
++	.offsets = &mss_spark_pll_offsets,
++	.l_val = 0x1e,
++	.cal_l_val = 0x29,
++	.alpha_val = 0x0,
++	.config_ctl = 0x4001055b,
++	.test_ctl = 0x0,
++	.test_ctl_u = 0x1,
++	.user_ctl = 0x00200007,
++	.user_ctl_u = 0x4,
++};
++
+ static TEE_Result poll_register_clear(vaddr_t reg, uint32_t mask)
+ {
+ 	uint32_t val = 0;
+@@ -262,6 +293,167 @@ static TEE_Result lmcu_reset_processor(void)
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result modem_setup(void)
++{
++	struct io_pa_va mss_io = { .pa = MSS_BASE };
++	vaddr_t mss = io_pa_or_va(&mss_io, MSS_SIZE);
++	struct io_pa_va core_cc_io = { .pa = MSS_CORE_CC_BASE };
++	vaddr_t core_cc = io_pa_or_va(&core_cc_io, MSS_CORE_CC_SIZE);
++	struct io_pa_va clk_ctl_io = { .pa = GCC_BASE };
++	vaddr_t clk_ctl = io_pa_or_va(&clk_ctl_io, GCC_SIZE);
++	struct io_pa_va mss_cc_io = { .pa = MSS_CC_BASE };
++	vaddr_t mss_cc = io_pa_or_va(&mss_cc_io, MSS_CC_SIZE);
++	struct io_pa_va mss_rst_io = { .pa = GCC_MSS_RESTART_BASE };
++	vaddr_t mss_rst = io_pa_or_va(&mss_rst_io, sizeof(uint32_t));
++	static bool post_boot_imem_reset_done;
++	uint32_t dbg_val = 0;
++
++	if (!mss || !core_cc || !clk_ctl || !mss_cc || !mss_rst)
++		return TEE_ERROR_GENERIC;
++
++	if (qcom_clock_enable_cbc(clk_ctl + GCC_MSS_CFG_AHB_CBCR) !=
++	    TEE_SUCCESS)
++		return TEE_ERROR_TIMEOUT;
++
++	if (qcom_clock_enable_cbc(mss_cc + MSS_CC_XO_Q6_CBCR) != TEE_SUCCESS)
++		return TEE_ERROR_TIMEOUT;
++
++	if (qcom_clock_enable_cbc(clk_ctl + GCC_MSS_CE_AXI_CBCR) !=
++	    TEE_SUCCESS)
++		return TEE_ERROR_TIMEOUT;
++
++	io_mask32(clk_ctl + GCC_MSS_Q6SS_BOOT_GPLL0_MUXR, 0x0,
++		  GCC_MSS_Q6SS_BOOT_GPLL0_MUXR_MUX_SEL_MASK);
++
++	if (!post_boot_imem_reset_done) {
++		dbg_val = io_read32(mss + MSS_QDSP6SS_DBG_CFG);
++
++		io_setbits32(mss_cc + MSS_CC_MSS_ALT_RESET_Q6SS,
++			     MSS_ALT_RESET_Q6SS_EN_BIT);
++		udelay(100);
++
++		io_setbits32(mss_rst, GCC_MSS_RESTART_SS_RESTART_BIT);
++		udelay(300);
++
++		io_clrbits32(mss_rst, GCC_MSS_RESTART_SS_RESTART_BIT);
++		udelay(100);
++
++		io_clrbits32(mss_cc + MSS_CC_MSS_ALT_RESET_Q6SS,
++			     MSS_ALT_RESET_Q6SS_EN_BIT);
++
++		io_write32(mss + MSS_QDSP6SS_DBG_CFG, dbg_val);
++		post_boot_imem_reset_done = true;
++	}
++
++	io_setbits32(core_cc + MSS_QDSP6SS_CORE_CBCR, MSS_CORE_CBCR_CLKEN_BIT);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result modem_enable_processor(void)
++{
++	struct io_pa_va mss_io = { .pa = MSS_BASE };
++	vaddr_t mss = io_pa_or_va(&mss_io, MSS_SIZE);
++	struct io_pa_va core_cc_io = { .pa = MSS_CORE_CC_BASE };
++	vaddr_t core_cc = io_pa_or_va(&core_cc_io, MSS_CORE_CC_SIZE);
++	uint64_t timeout = 0;
++	TEE_Result res = TEE_SUCCESS;
++
++	if (!mss || !core_cc)
++		return TEE_ERROR_GENERIC;
++
++	io_write32(mss + MSS_QDSP6SS_RET_CFG, 0);
++
++	io_write32(mss + MSS_QDSP6SS_BOOT_CORE_START, 1);
++	io_write32(mss + MSS_QDSP6SS_BOOT_AUTO_BREAK_EN, 1);
++	io_write32(mss + MSS_QDSP6SS_BOOT_CMD, 1);
++
++	timeout = timeout_init_us(200000 * 5);
++	while (!(io_read32(mss + MSS_QDSP6SS_BOOT_STATUS) &
++		 MSS_BOOT_STATUS_AUTO_BREAK_BIT)) {
++		if (timeout_elapsed(timeout))
++			return TEE_ERROR_TIMEOUT;
++		udelay(5);
++	}
++
++	res = qcom_spark_pll_enable(core_cc + MSS_QDSP6SS_PLL_BASE_OFFSET,
++				    &mss_q6_pll_cfg);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	res = qcom_clock_set_rate(core_cc + MSS_QDSP6SS_CORE_CFG_RCGR,
++				  core_cc + MSS_QDSP6SS_CORE_CMD_RCGR,
++				  MSS_Q6CFG_RCG_VAL);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	io_write32(mss + MSS_QDSP6SS_BOOT_RESUME_CMD, 1);
++
++	timeout = timeout_init_us(200000 * 5);
++	while (!(io_read32(mss + MSS_QDSP6SS_BOOT_STATUS) &
++		 MSS_BOOT_STATUS_DONE_BIT)) {
++		if (timeout_elapsed(timeout))
++			return TEE_ERROR_TIMEOUT;
++		udelay(5);
++	}
++
++	io_write32(mss + MSS_QDSP6SS_BOOT_CORE_START, 1);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result modem_reset_processor(void)
++{
++	struct io_pa_va mss_io = { .pa = MSS_BASE };
++	vaddr_t mss = io_pa_or_va(&mss_io, MSS_SIZE);
++	struct io_pa_va mss_rst_io = { .pa = GCC_MSS_RESTART_BASE };
++	vaddr_t mss_rst = io_pa_or_va(&mss_rst_io, sizeof(uint32_t));
++	struct io_pa_va tcsr_io = { .pa = MSS_TCSR_HALT_BASE };
++	vaddr_t tcsr = io_pa_or_va(&tcsr_io, MSS_TCSR_HALT_SIZE);
++	uint64_t timeout = 0;
++
++	if (!mss || !mss_rst || !tcsr)
++		return TEE_ERROR_GENERIC;
++
++	io_write32(mss + MSS_QDSP6SS_RET_CFG, 0x3);
++
++	io_setbits32(tcsr + TCSR_MSSQ6_HALTREQ, TCSR_HALT_BIT);
++	timeout = timeout_init_us(200000 * 5);
++	while (!(io_read32(tcsr + TCSR_MSSQ6_HALTACK) & TCSR_HALT_BIT)) {
++		if (timeout_elapsed(timeout))
++			break;
++		udelay(5);
++	}
++
++	io_setbits32(tcsr + TCSR_MSS_MODEM_HALTREQ, TCSR_HALT_BIT);
++	timeout = timeout_init_us(200000 * 5);
++	while (!(io_read32(tcsr + TCSR_MSS_MODEM_HALTACK) & TCSR_HALT_BIT)) {
++		if (timeout_elapsed(timeout))
++			return TEE_ERROR_TIMEOUT;
++		udelay(5);
++	}
++
++	io_setbits32(tcsr + TCSR_MSS_NC_HALTREQ, TCSR_HALT_BIT);
++	timeout = timeout_init_us(200000 * 5);
++	while (!(io_read32(tcsr + TCSR_MSS_NC_HALTACK) & TCSR_HALT_BIT)) {
++		if (timeout_elapsed(timeout))
++			return TEE_ERROR_TIMEOUT;
++		udelay(5);
++	}
++
++	io_write32(tcsr + TCSR_MSSQ6_HALTREQ, 0x0);
++	io_write32(tcsr + TCSR_MSS_MODEM_HALTREQ, 0x0);
++	io_write32(tcsr + TCSR_MSS_NC_HALTREQ, 0x0);
++
++	io_setbits32(mss_rst, GCC_MSS_RESTART_SS_RESTART_BIT);
++
++	udelay(200);
++
++	io_clrbits32(mss_rst, GCC_MSS_RESTART_SS_RESTART_BIT);
++
++	return TEE_SUCCESS;
++}
++
+ TEE_Result qcom_clock_enable_pas(enum qcom_clk_group group)
+ {
+ 	switch (group) {
+@@ -269,6 +461,8 @@ TEE_Result qcom_clock_enable_pas(enum qcom_clk_group group)
+ 		return turing_setup();
+ 	case QCOM_CLKS_LMCU:
+ 		return lmcu_setup();
++	case QCOM_CLKS_MODEM:
++		return modem_setup();
+ 	default:
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 	}
+@@ -281,6 +475,8 @@ TEE_Result qcom_clock_enable_pas_processor(enum qcom_clk_group group)
+ 		return turing_enable_processor();
+ 	case QCOM_CLKS_LMCU:
+ 		return lmcu_enable_processor();
++	case QCOM_CLKS_MODEM:
++		return modem_enable_processor();
+ 	default:
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 	}
+@@ -293,6 +489,8 @@ TEE_Result qcom_clock_pas_reset(enum qcom_clk_group group)
+ 		return turing_reset_processor();
+ 	case QCOM_CLKS_LMCU:
+ 		return lmcu_reset_processor();
++	case QCOM_CLKS_MODEM:
++		return modem_reset_processor();
+ 	default:
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 	}
+diff --git a/core/drivers/clk/qcom/platform/shikra/clock_group.h b/core/drivers/clk/qcom/platform/shikra/clock_group.h
+index 1fe1ee9b9..9873b7599 100644
+--- a/core/drivers/clk/qcom/platform/shikra/clock_group.h
++++ b/core/drivers/clk/qcom/platform/shikra/clock_group.h
+@@ -107,4 +107,43 @@
+ 
+ #define MCU_RVCP_TILE0_BOOT_SUPPRESS		0x8c100
+ 
++#define MSS_QDSP6SS_RST_EVB			0x10
++#define MSS_QDSP6SS_DBG_CFG			0x18
++#define MSS_QDSP6SS_RET_CFG			0x1c
++#define MSS_QDSP6SS_BOOT_CORE_START		0x400
++#define MSS_QDSP6SS_BOOT_CMD			0x404
++#define MSS_QDSP6SS_BOOT_STATUS			0x408
++#define MSS_QDSP6SS_BOOT_AUTO_BREAK_EN		0x410
++#define MSS_QDSP6SS_BOOT_RESUME_CMD		0x414
++
++#define MSS_QDSP6SS_PLL_BASE_OFFSET		0x0
++#define MSS_QDSP6SS_CORE_CMD_RCGR		0x40
++#define MSS_QDSP6SS_CORE_CFG_RCGR		0x44
++#define MSS_QDSP6SS_CORE_CBCR			0x60
++
++#define MSS_CC_XO_Q6_CBCR			0x9c4
++#define MSS_CC_MSS_ALT_RESET_Q6SS		0x141c
++
++#define GCC_MSS_CFG_AHB_CBCR			0x33000
++#define GCC_MSS_CE_AXI_CBCR			0x33150
++#define GCC_MSS_Q6SS_BOOT_GPLL0_MUXR		0x3314c
++
++#define MSS_BOOT_STATUS_AUTO_BREAK_BIT		BIT(31)
++#define MSS_BOOT_STATUS_DONE_BIT		BIT(0)
++#define MSS_CORE_CBCR_CLKEN_BIT			BIT(0)
++#define MSS_ALT_RESET_Q6SS_EN_BIT		BIT(0)
++#define GCC_MSS_Q6SS_BOOT_GPLL0_MUXR_MUX_SEL_MASK	0x3
++
++#define MSS_Q6CFG_RCG_VAL			0x100101
++
++#define TCSR_MSSQ6_HALTREQ			0x0
++#define TCSR_MSSQ6_HALTACK			0x4
++#define TCSR_MSS_NC_HALTREQ			0x1000
++#define TCSR_MSS_NC_HALTACK			0x1004
++#define TCSR_MSS_MODEM_HALTREQ			0x2000
++#define TCSR_MSS_MODEM_HALTACK			0x2004
++
++#define GCC_MSS_RESTART_SS_RESTART_BIT		BIT(0)
++#define TCSR_HALT_BIT				BIT(0)
++
+ #endif /* _CLOCK_GROUP_H_ */
+diff --git a/core/include/drivers/clk_qcom.h b/core/include/drivers/clk_qcom.h
+index 255677f79..c0b21b154 100644
+--- a/core/include/drivers/clk_qcom.h
++++ b/core/include/drivers/clk_qcom.h
+@@ -43,6 +43,7 @@ enum qcom_clk_group {
+ 	QCOM_CLKS_HPASS2,
+ 	QCOM_CLKS_LMCU,
+ 	QCOM_CLKS_SOCCP,
++	QCOM_CLKS_MODEM,
+ 	QCOM_CLKS_MAX,
+ };
+ 
+diff --git a/core/pta/qcom/pas/platform/shikra/modem.c b/core/pta/qcom/pas/platform/shikra/modem.c
+new file mode 100644
+index 000000000..d017ab8d2
+--- /dev/null
++++ b/core/pta/qcom/pas/platform/shikra/modem.c
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2026, Qualcomm Technologies, Inc. and/or its subsidiaries.
++ */
++
++#include <io.h>
++#include <platform_config.h>
++#include <stdint.h>
++#include <drivers/clk_qcom.h>
++
++#include "modem.h"
++
++/*
++ * RST_EVB lives at offset 0x10 into the MSS QDSP6SS PUB register block,
++ * which starts at MSS_BASE (see clock_group.h's MSS_QDSP6SS_RST_EVB).
++ * EVB is bits [27:4], i.e. the entry address >> 4.
++ */
++#define MSS_QDSP6SS_RST_EVB		0x10
++
++static TEE_Result modem_fw_start(struct qcom_pas_data *data)
++{
++	vaddr_t base = io_pa_or_va(&data->base, data->size);
++
++	if (!base)
++		return TEE_ERROR_GENERIC;
++
++	/*
++	 * Program the firmware entry point. The Q6 is released later, once
++	 * its PLL is configured, by qcom_clock_enable_pas_processor().
++	 */
++	io_write32(base + MSS_QDSP6SS_RST_EVB, data->fw_base >> 4);
++	dsb();
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result modem_fw_shutdown(struct qcom_pas_data *data)
++{
++	return qcom_clock_pas_reset(data->clk_group);
++}
++
++const struct qcom_pas_ops modem_ops = {
++	.fw_start = modem_fw_start,
++	.fw_shutdown = modem_fw_shutdown,
++};
+diff --git a/core/pta/qcom/pas/platform/shikra/modem.h b/core/pta/qcom/pas/platform/shikra/modem.h
+new file mode 100644
+index 000000000..b3e0347f4
+--- /dev/null
++++ b/core/pta/qcom/pas/platform/shikra/modem.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2026, Qualcomm Technologies, Inc. and/or its subsidiaries.
++ */
++
++#ifndef _MODEM_H_
++#define _MODEM_H_
++
++#include "pas_subsys.h"
++
++extern const struct qcom_pas_ops modem_ops;
++
++#endif /* _MODEM_H_ */
+diff --git a/core/pta/qcom/pas/platform/shikra/sub.mk b/core/pta/qcom/pas/platform/shikra/sub.mk
+index 3e498cad3..fa34b2c4c 100644
+--- a/core/pta/qcom/pas/platform/shikra/sub.mk
++++ b/core/pta/qcom/pas/platform/shikra/sub.mk
+@@ -1,3 +1,3 @@
+-srcs-y += subsys.c lmcu.c cdsp.c iris.c
++srcs-y += subsys.c lmcu.c cdsp.c iris.c modem.c
+ incdirs-y += .
+ incdirs-y += ../
+diff --git a/core/pta/qcom/pas/platform/shikra/subsys.c b/core/pta/qcom/pas/platform/shikra/subsys.c
+index 9dfbab43b..7c08f3b16 100644
+--- a/core/pta/qcom/pas/platform/shikra/subsys.c
++++ b/core/pta/qcom/pas/platform/shikra/subsys.c
+@@ -11,6 +11,7 @@
+ #include "lmcu.h"
+ #include "cdsp.h"
+ #include "iris.h"
++#include "modem.h"
+ #include "pas_subsys.h"
+ 
+ static struct qcom_pas_subsys subsystems[] = {
+@@ -54,6 +55,17 @@ static struct qcom_pas_subsys subsystems[] = {
+ 		.ops = &iris_ops,
+ 		.reset_seq = QCOM_PAS_RESET_NONE,
+ 	},
++	{
++		.data = {
++			.pas_id = PAS_ID_MODEM,
++			.base.pa = MSS_BASE,
++			.size = MSS_SIZE,
++			.clk_group = QCOM_CLKS_MODEM,
++			.map_type = MEM_AREA_IO_SEC,
++		},
++		.ops = &modem_ops,
++		.reset_seq = QCOM_PAS_RESET_CLK_FULL,
++	},
+ };
+ 
+ struct qcom_pas_subsys *qcom_pas_platform_subsys(size_t *count)
+diff --git a/lib/libutee/include/pta_qcom_pas.h b/lib/libutee/include/pta_qcom_pas.h
+index 9e586d31f..7f9347536 100644
+--- a/lib/libutee/include/pta_qcom_pas.h
++++ b/lib/libutee/include/pta_qcom_pas.h
+@@ -15,6 +15,7 @@
+  */
+ 
+ #define PAS_ID_QDSP6		1
++#define PAS_ID_MODEM		4
+ #define PAS_ID_WPSS		6
+ #define PAS_ID_IRIS		9
+ #define PAS_ID_TURING		18
+diff --git a/ta/qcom_pas/include/auth/pas_policy.h b/ta/qcom_pas/include/auth/pas_policy.h
+index 5ad0d42cd..081d9c51c 100644
+--- a/ta/qcom_pas/include/auth/pas_policy.h
++++ b/ta/qcom_pas/include/auth/pas_policy.h
+@@ -9,6 +9,7 @@
+ #include <stdint.h>
+ #include <tee_api_types.h>
+ 
++#define SECBOOT_MPSS_SW_TYPE	0x02
+ #define SECBOOT_ADSP_SW_TYPE	0x04
+ #define SECBOOT_IRIS_SW_TYPE	0x0E
+ #define SECBOOT_TURING_SW_TYPE	0x17
+diff --git a/ta/qcom_pas/src/auth/shikra/pas_policy_platform.h b/ta/qcom_pas/src/auth/shikra/pas_policy_platform.h
+index b2dde9c37..0e1e41d61 100644
+--- a/ta/qcom_pas/src/auth/shikra/pas_policy_platform.h
++++ b/ta/qcom_pas/src/auth/shikra/pas_policy_platform.h
+@@ -14,6 +14,7 @@ static const struct pas_policy_entry pas_policy_map[] = {
+ 	{ PAS_ID_IRIS, SECBOOT_IRIS_SW_TYPE },
+ 	{ PAS_ID_LMCU, SECBOOT_LPAICP_MISSION_MODE_SW_TYPE },
+ 	{ PAS_ID_TURING, SECBOOT_TURING_SW_TYPE },
++	{ PAS_ID_MODEM, SECBOOT_MPSS_SW_TYPE },
+ };
+ 
+ #endif /* __PAS_POLICY_PLATFORM_H */

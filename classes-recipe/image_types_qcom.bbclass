@@ -10,6 +10,7 @@ QCOM_CDT_FIRMWARE ?= ""
 PREFERRED_PROVIDER_virtual/qcom-capsule-firmware ?= ""
 QCOM_CAPSULE_FIRMWARE ?= "${PREFERRED_PROVIDER_virtual/qcom-capsule-firmware}"
 
+QCOM_FITIMAGE_SUBDIR ?= "fitimage"
 QCOM_UBOOT_SPL_FIT ?= "0"
 QCOM_UBOOT_SPL_IMAGE ?= "u-boot-spl-${UBOOT_CONFIG_DEFAULT}.mbn"
 QCOM_UBOOT_SPL_FLASH_IMAGE ?= "tz.mbn"
@@ -84,6 +85,13 @@ create_qcomflash_pkg() {
         # copy all images so they can be made available via the same tarball
         for dtbimg in ${DEPLOY_DIR_IMAGE}/dtb-*-image.vfat; do
             install -m 0644 ${dtbimg} .
+        done
+    fi
+
+    if [ -d ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} ]; then
+        install -d fitimage
+        for fit in `cd ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR} && find . -type f | sed 's|^\./||' | sort`; do
+            install -D -m 0644 ${DEPLOY_DIR_IMAGE}/${QCOM_FITIMAGE_SUBDIR}/${fit} fitimage/${fit}
         done
     fi
 
