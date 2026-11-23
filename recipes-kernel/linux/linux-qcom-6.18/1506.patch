@@ -1,0 +1,1690 @@
+From 30f84ef23e2f39107ff542a48cd809f72d682257 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:01 +0530
+Subject: [PATCH 01/14] Revert "FROMLIST: ASoC: qcom: q6apm-dai: fallback to
+ BUFFER_BYTES_MAX without"
+
+This reverts commit e5a865cc69c1c5d9ebc94592e4f10ea2bef49885.
+
+Upstream-Status: Pending
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index 5c5310f6ed42e..40f11f60a5c34 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -709,9 +709,7 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ 	else
+ 		phys = substream->dma_buffer.addr | (pdata->sid << 32);
+ 
+-	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys,
+-					    pdata->has_reserved_mem ?
+-					    pdata->reserved_buf_size : BUFFER_BYTES_MAX);
++	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys, pdata->reserved_buf_size);
+ 	if (ret < 0)
+ 		dev_err(dev, "Audio Start: Buffer Allocation failed rc = %d\n", ret);
+ 
+
+From f6c70fed4086ec3c9b4909659d3d420cda9d002e Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:02 +0530
+Subject: [PATCH 02/14] Revert "FROMLIST: ASoC: qcom: q6apm-dai: fix carveout
+ buffer sizing and SCM assignment"
+
+This reverts commit c791d3e1b0eaa789eba79c2ba9957442cee4feb5.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 34 +++++++++-----------------------
+ 1 file changed, 9 insertions(+), 25 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index 40f11f60a5c34..9e301e1a6adad 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -152,7 +152,7 @@ static int q6apm_dai_assign_memory(struct snd_pcm_substream *substream,
+ 	}
+ 
+ 	scm_region->dma_addr = substream->dma_buffer.addr;
+-	scm_region->size = ALIGN(pdata->reserved_buf_size, PAGE_SIZE);
++	scm_region->size = ALIGN(BUFFER_BYTES_MAX, PAGE_SIZE);
+ 	scm_region->src_perms = BIT_ULL(QCOM_SCM_VMID_HLOS);
+ 
+ 	ret = qcom_scm_assign_mem(scm_region->dma_addr, scm_region->size,
+@@ -590,9 +590,7 @@ static int q6apm_dai_open(struct snd_soc_component *component,
+ 
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+ 		ret = snd_pcm_hw_constraint_minmax(runtime, SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
+-						   BUFFER_BYTES_MIN,
+-						   pdata->has_reserved_mem ?
+-						   pdata->reserved_buf_size : BUFFER_BYTES_MAX);
++						   BUFFER_BYTES_MIN, BUFFER_BYTES_MAX);
+ 		if (ret < 0) {
+ 			dev_err(dev, "constraint for buffer bytes min max ret = %d\n", ret);
+ 			goto err;
+@@ -613,8 +611,7 @@ static int q6apm_dai_open(struct snd_soc_component *component,
+ 	}
+ 
+ 	runtime->private_data = prtd;
+-	runtime->dma_bytes = pdata->has_reserved_mem ?
+-			pdata->reserved_buf_size : BUFFER_BYTES_MAX;
++	runtime->dma_bytes = BUFFER_BYTES_MAX;
+ 	if (pdata->sid < 0)
+ 		prtd->phys = substream->dma_buffer.addr;
+ 	else
+@@ -709,7 +706,7 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ 	else
+ 		phys = substream->dma_buffer.addr | (pdata->sid << 32);
+ 
+-	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys, pdata->reserved_buf_size);
++	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys, BUFFER_BYTES_MAX);
+ 	if (ret < 0)
+ 		dev_err(dev, "Audio Start: Buffer Allocation failed rc = %d\n", ret);
+ 
+@@ -736,9 +733,10 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 	 * Fall back to the standard fixed system-RAM buffer on other platforms.
+ 	 */
+ 	if (pdata->has_reserved_mem)
+-		ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+-						   component->dev,
+-						   pdata->reserved_buf_size);
++		ret = snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
++						     component->dev,
++						     pdata->reserved_buf_size,
++						     pdata->reserved_buf_size);
+ 	else
+ 		ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+ 						   component->dev, size);
+@@ -1296,7 +1294,7 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 						      dev);
+ 			if (rc)
+ 				return rc;
+-			pdata->reserved_buf_size = min_t(size_t, rmem->size / 4,
++			pdata->reserved_buf_size = min_t(size_t, rmem->size,
+ 							 BUFFER_BYTES_MAX);
+ 			pdata->has_reserved_mem = true;
+ 		} else {
+@@ -1314,20 +1312,6 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 			struct reserved_mem *rmem;
+ 			struct q6apm_scm_region *r;
+ 
+-			/*
+-			 * Only index 0 (control-path carveout) is
+-			 * SCM-assigned via carveout_regions[]. Index 1+
+-			 * are data-path DMA pools handled per-substream
+-			 * by q6apm_dai_assign_memory() in pcm_new().
+-			 * Including them here causes a double-assignment
+-			 * of the same physical region which TZ rejects
+-			 * with -EINVAL.
+-			 */
+-			if (idx > 1) {
+-				of_node_put(mem_node);
+-				break;
+-			}
+-
+ 			if (pdata->num_carveouts >= Q6APM_MAX_CARVEOUTS) {
+ 				dev_warn(dev,
+ 					 "memory-region: too many entries, ignoring rest\n");
+
+From 5776cb93b162a9191c9c252d0a3da19504ec1b19 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:02 +0530
+Subject: [PATCH 03/14] Revert "FROMLIST: ASoC: qcom: q6apm-dai: add carveout
+ SCM assignment for mDSP buffers"
+
+This reverts commit 9fc912af0e06003042b0d27b909098295b107d92.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 206 +------------------------------
+ 1 file changed, 3 insertions(+), 203 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index 9e301e1a6adad..a39339e169e2a 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -15,7 +15,6 @@
+ #include <asm/dma.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/firmware/qcom/qcom_scm.h>
+-#include <linux/of_reserved_mem.h>
+ #include <sound/pcm_params.h>
+ #include "q6apm.h"
+ 
+@@ -35,9 +34,8 @@
+ #define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
+ #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
+ #define COMPR_PLAYBACK_MIN_NUM_FRAGMENTS (4)
+-#define Q6APM_SCM_MAX_VMID	31
+-#define Q6APM_MAX_VMIDS		8
+-#define Q6APM_MAX_CARVEOUTS	8
++#define Q6APM_MAX_VMIDS 8
++#define Q6APM_SCM_MAX_VMID 31
+ #define SID_MASK_DEFAULT	0xF
+ 
+ static const struct snd_compr_codec_caps q6apm_compr_caps = {
+@@ -96,16 +94,6 @@ struct q6apm_dai_data {
+ 	u32 vmids[Q6APM_MAX_VMIDS];
+ 	bool use_scm_assign;
+ 	struct q6apm_scm_region scm_regions[SNDRV_PCM_STREAM_LAST + 1];
+-	/*
+-	 * carveout regions from memory-region DT property
+-	 * (index 0: control path, index 1+: data path)
+-	 */
+-	struct q6apm_scm_region carveout_regions[Q6APM_MAX_CARVEOUTS];
+-	int num_carveouts;
+-	/* true when memory-region DT property is present and DMA pool attached */
+-	bool has_reserved_mem;
+-	/* size of the data-path reserved region, capped at BUFFER_BYTES_MAX */
+-	size_t reserved_buf_size;
+ };
+ 
+ static int q6apm_dai_assign_memory(struct snd_pcm_substream *substream,
+@@ -193,102 +181,6 @@ static int q6apm_dai_unassign_memory(struct snd_soc_component *component,
+ 	return ret;
+ }
+ 
+-static int q6apm_dai_assign_one_region(struct q6apm_scm_region *region,
+-				       struct q6apm_dai_data *pdata)
+-{
+-	struct qcom_scm_vmperm *dst_vmids;
+-	int dst_count = 0;
+-	int ret, i;
+-
+-	if (region->assigned)
+-		return 0;
+-
+-	dst_vmids = kcalloc(pdata->num_vmids + 1, sizeof(*dst_vmids),
+-			    GFP_KERNEL);
+-	if (!dst_vmids)
+-		return -ENOMEM;
+-
+-	/* Always keep HLOS RW so CPU can continue carveout access. */
+-	dst_vmids[dst_count].vmid = QCOM_SCM_VMID_HLOS;
+-	dst_vmids[dst_count].perm = QCOM_SCM_PERM_RW;
+-	dst_count++;
+-
+-	for (i = 0; i < pdata->num_vmids; i++) {
+-		if (WARN_ON_ONCE(pdata->vmids[i] == QCOM_SCM_VMID_HLOS))
+-			continue;
+-		dst_vmids[dst_count].vmid = pdata->vmids[i];
+-		dst_vmids[dst_count].perm = QCOM_SCM_PERM_RW;
+-		dst_count++;
+-	}
+-
+-	if (dst_count == 1) {
+-		/* Nothing to assign beyond HLOS access. */
+-		kfree(dst_vmids);
+-		return 0;
+-	}
+-
+-	ret = qcom_scm_assign_mem(region->dma_addr, region->size,
+-				  &region->src_perms, dst_vmids, dst_count);
+-	kfree(dst_vmids);
+-	if (!ret)
+-		region->assigned = true;
+-	return ret;
+-}
+-
+-static int q6apm_dai_assign_carveout(struct q6apm_dai_data *pdata)
+-{
+-	int i, ret;
+-
+-	if (!pdata->use_scm_assign || !pdata->num_carveouts)
+-		return 0;
+-
+-	for (i = 0; i < pdata->num_carveouts; i++) {
+-		ret = q6apm_dai_assign_one_region(&pdata->carveout_regions[i],
+-						  pdata);
+-		if (ret)
+-			return ret;
+-	}
+-	return 0;
+-}
+-
+-static void q6apm_dai_unassign_one_region(struct snd_soc_component *component,
+-					  struct q6apm_scm_region *region)
+-{
+-	struct device *dev = component->dev;
+-	struct qcom_scm_vmperm hlos = {
+-		.vmid = QCOM_SCM_VMID_HLOS,
+-		.perm = QCOM_SCM_PERM_RW,
+-	};
+-	int ret;
+-
+-	if (!region->assigned)
+-		return;
+-
+-	ret = qcom_scm_assign_mem(region->dma_addr, region->size,
+-				  &region->src_perms, &hlos, 1);
+-	if (!ret) {
+-		region->assigned = false;
+-		region->src_perms = BIT_ULL(QCOM_SCM_VMID_HLOS);
+-	} else {
+-		dev_err(dev,
+-			"Failed to unassign carveout %pa from VMIDs: %d\n",
+-			&region->dma_addr, ret);
+-	}
+-}
+-
+-static void q6apm_dai_unassign_carveout(struct snd_soc_component *component,
+-					struct q6apm_dai_data *pdata)
+-{
+-	int i;
+-
+-	if (!pdata->use_scm_assign || !pdata->num_carveouts)
+-		return;
+-
+-	for (i = 0; i < pdata->num_carveouts; i++)
+-		q6apm_dai_unassign_one_region(component,
+-					      &pdata->carveout_regions[i]);
+-}
+-
+ static const struct snd_pcm_hardware q6apm_dai_hardware_capture = {
+ 	.info =                 (SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_BLOCK_TRANSFER |
+ 				 SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED |
+@@ -727,19 +619,7 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 
+ 	graph_id = cpu_dai->driver->id;
+ 
+-	/*
+-	 * When a reserved DMA pool is attached (memory-region in DT), allocate
+-	 * PCM buffers from it so the DSP accesses the carveout address directly.
+-	 * Fall back to the standard fixed system-RAM buffer on other platforms.
+-	 */
+-	if (pdata->has_reserved_mem)
+-		ret = snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+-						     component->dev,
+-						     pdata->reserved_buf_size,
+-						     pdata->reserved_buf_size);
+-	else
+-		ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+-						   component->dev, size);
++	ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV, component->dev, size);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -772,12 +652,6 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 		}
+ 	}
+ 
+-	if (pdata->use_scm_assign && pdata->num_carveouts) {
+-		ret = q6apm_dai_assign_carveout(pdata);
+-		if (ret)
+-			return ret;
+-	}
+-
+ 	return 0;
+ }
+ 
+@@ -808,9 +682,6 @@ static void q6apm_dai_pcm_free(struct snd_soc_component *component, struct snd_p
+ 	if (!pdata)
+ 		return;
+ 
+-	if (pdata->use_scm_assign && pdata->num_carveouts)
+-		q6apm_dai_unassign_carveout(component, pdata);
+-
+ 	substream = pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream;
+ 	if (substream) {
+ 		if (pdata->use_scm_assign)
+@@ -1260,77 +1131,6 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 		pdata->use_scm_assign = true;
+ 	}
+ 
+-	/*
+-	 * Attach the data-path reserved memory region (index 1 in
+-	 * memory-region, e.g. audio_mdsp_carveout_mem on shikra) as a DMA
+-	 * pool so that snd_pcm_set_managed_buffer_all() allocates PCM
+-	 * buffers from the carveout instead of system RAM. The size is read
+-	 * from the DT node and capped at BUFFER_BYTES_MAX.
+-	 * Index 0 is the control-path carveout (SCM-assigned separately).
+-	 * Platforms without memory-region are completely unaffected.
+-	 */
+-	if (of_property_present(node, "memory-region")) {
+-		struct device_node *rmem_node;
+-		struct reserved_mem *rmem = NULL;
+-
+-		/* index 1 = data path (PCM DMA buffer pool) */
+-		rmem_node = of_parse_phandle(node, "memory-region", 1);
+-		if (rmem_node) {
+-			rmem = of_reserved_mem_lookup(rmem_node);
+-			of_node_put(rmem_node);
+-		}
+-
+-		if (rmem) {
+-			rc = of_reserved_mem_device_init_by_idx(dev, node, 1);
+-			if (rc) {
+-				dev_err(dev,
+-					"failed to attach reserved memory pool: %d\n",
+-					rc);
+-				return rc;
+-			}
+-			rc = devm_add_action_or_reset(dev,
+-						      (void (*)(void *))
+-						      of_reserved_mem_device_release,
+-						      dev);
+-			if (rc)
+-				return rc;
+-			pdata->reserved_buf_size = min_t(size_t, rmem->size,
+-							 BUFFER_BYTES_MAX);
+-			pdata->has_reserved_mem = true;
+-		} else {
+-			dev_warn(dev,
+-				 "memory-region index 1 not found, using system RAM\n");
+-		}
+-	}
+-
+-	if (pdata->use_scm_assign) {
+-		struct device_node *mem_node;
+-		int idx = 0;
+-
+-		while ((mem_node = of_parse_phandle(node, "memory-region",
+-						    idx++))) {
+-			struct reserved_mem *rmem;
+-			struct q6apm_scm_region *r;
+-
+-			if (pdata->num_carveouts >= Q6APM_MAX_CARVEOUTS) {
+-				dev_warn(dev,
+-					 "memory-region: too many entries, ignoring rest\n");
+-				of_node_put(mem_node);
+-				break;
+-			}
+-
+-			rmem = of_reserved_mem_lookup(mem_node);
+-			of_node_put(mem_node);
+-			if (!rmem)
+-				continue;
+-
+-			r = &pdata->carveout_regions[pdata->num_carveouts++];
+-			r->dma_addr  = rmem->base;
+-			r->size      = ALIGN(rmem->size, PAGE_SIZE);
+-			r->src_perms = BIT_ULL(QCOM_SCM_VMID_HLOS);
+-		}
+-	}
+-
+ 	if (pdata->use_scm_assign && !qcom_scm_is_available())
+ 		return -EPROBE_DEFER;
+ 
+
+From cc572e93645921d2aa51ad35bb2f84a8d0d84fe4 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:02 +0530
+Subject: [PATCH 04/14] Revert "FROMLIST: dt-bindings: sound: qcom,q6apm-dai:
+ add memory-region property"
+
+This reverts commit 1363d26aba65aaded0e7c1b6f8d5e02fd8e04184.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ .../bindings/sound/qcom,q6apm-dai.yaml        | 36 +++----------------
+ .../bindings/sound/qcom,q6apm-lpass-dais.yaml |  9 ++---
+ 2 files changed, 9 insertions(+), 36 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+index 1c0ea0f389e44..b767625985a74 100644
+--- a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
++++ b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+@@ -10,11 +10,7 @@ maintainers:
+   - Srinivas Kandagatla <srinivas.kandagatla@linaro.org>
+ 
+ description: |
+-  This binding describes the Qualcomm APM DAIs in DSP.
+-  When qcom,vmid is present, the driver performs SCM memory
+-  assignment for PCM DMA buffers and any reserved-memory regions
+-  listed in memory-region, granting the specified VMIDs RW access
+-  while retaining HLOS as a co-owner.
++  This binding describes the Qualcomm APM DAIs in DSP
+ 
+ properties:
+   compatible:
+@@ -24,21 +20,9 @@ properties:
+     minItems: 1
+     maxItems: 2
+ 
+-  memory-region:
+-    description:
+-      List of phandles to reserved-memory regions (shared-dma-pool,
+-      no-map) that must be SCM-assigned to the VMIDs in qcom,vmid.
+-      The first entry is the control-path buffer; subsequent entries
+-      are data-path buffers. Only meaningful when qcom,vmid is present.
+-    minItems: 1
+-    maxItems: 8
+-
+   qcom,vmid:
+-    description:
+-      Optional list of destination VMIDs to grant RW access to PCM DMA
+-      buffers and any memory-region carveouts. HLOS retains RW access
+-      as source owner and must not be listed. When present,
+-      qcom_scm_is_available() must return true at probe time.
++    description: Optional list of destination VMIDs to share PCM DMA buffers with.
++      HLOS retains RW access as source owner and must not be listed.
+     $ref: /schemas/types.yaml#/definitions/uint32-array
+     items:
+       minimum: 1
+@@ -48,10 +32,7 @@ properties:
+ 
+ required:
+   - compatible
+-
+-dependentRequired:
+-  memory-region:
+-    - qcom,vmid
++  - iommus
+ 
+ additionalProperties: false
+ 
+@@ -61,12 +42,3 @@ examples:
+         compatible = "qcom,q6apm-dais";
+         iommus = <&apps_smmu 0x1801 0x0>;
+     };
+-  - |
+-    #include <dt-bindings/firmware/qcom,scm.h>
+-    dais {
+-        compatible = "qcom,q6apm-dais";
+-        iommus = <&apps_smmu 0x0c01 0x0>;
+-        /* index 0: control path, index 1: data path */
+-        memory-region = <&audio_heap_mem &audio_mdsp_carveout_mem>;
+-        qcom,vmid = <QCOM_SCM_VMID_MSS_MSA QCOM_SCM_VMID_LPASS>;
+-    };
+diff --git a/Documentation/devicetree/bindings/sound/qcom,q6apm-lpass-dais.yaml b/Documentation/devicetree/bindings/sound/qcom,q6apm-lpass-dais.yaml
+index 2c3d4ba30013b..0eae1c382f5e0 100644
+--- a/Documentation/devicetree/bindings/sound/qcom,q6apm-lpass-dais.yaml
++++ b/Documentation/devicetree/bindings/sound/qcom,q6apm-lpass-dais.yaml
+@@ -49,13 +49,14 @@ patternProperties:
+ 
+       clock-names:
+         minItems: 1
+-        maxItems: 3
+         items:
+-          enum: [mclk, bclk, eclk]
++          - const: mclk
++          - const: bclk
++          - const: eclk
+ 
+     dependencies:
+-      clocks: [clock-names]
+-      clock-names: [clocks]
++      clocks: [ clock-names ]
++      clock-names: [ clocks ]
+ 
+     required:
+       - reg
+
+From 24ba7e3a24de4a88ade87c2d8cf01c51754442d2 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:02 +0530
+Subject: [PATCH 05/14] Revert "FROMLIST: ASoC: qcom: q6apm-dai: add VMID-based
+ SCM assignment"
+
+This reverts commit cc270bd4970b3d70b5c19583e81ebdb29ca47f81.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/Kconfig           |  1 -
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 18 ------------------
+ 2 files changed, 19 deletions(-)
+
+diff --git a/sound/soc/qcom/Kconfig b/sound/soc/qcom/Kconfig
+index 47bd4e1f3061a..089335058cdbd 100644
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -111,7 +111,6 @@ config SND_SOC_QDSP6_ASM_DAI
+ 
+ config SND_SOC_QDSP6_APM_DAI
+ 	tristate
+-	select QCOM_SCM
+ 	select SND_SOC_COMPRESS
+ 
+ config SND_SOC_QDSP6_APM_LPASS_DAI
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index a39339e169e2a..cc9e835c3ae0d 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -608,15 +608,11 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc_pcm_runtime *rtd)
+ {
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+-	struct q6apm_dai_data *pdata = snd_soc_component_get_drvdata(component);
+ 	struct snd_pcm *pcm = rtd->pcm;
+ 	int size = BUFFER_BYTES_MAX;
+ 	int graph_id, ret;
+ 	struct snd_pcm_substream *substream;
+ 
+-	if (!pdata)
+-		return -EINVAL;
+-
+ 	graph_id = cpu_dai->driver->id;
+ 
+ 	ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV, component->dev, size);
+@@ -629,13 +625,6 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 		ret = q6apm_dai_memory_map(component, substream, graph_id);
+ 		if (ret)
+ 			return ret;
+-		if (pdata->use_scm_assign) {
+-			ret = q6apm_dai_assign_memory(substream, pdata);
+-			if (ret) {
+-				q6apm_dai_memory_unmap(component, substream);
+-				return ret;
+-			}
+-		}
+ 	}
+ 
+ 	if (pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream) {
+@@ -643,13 +632,6 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 		ret = q6apm_dai_memory_map(component, substream, graph_id);
+ 		if (ret)
+ 			return ret;
+-		if (pdata->use_scm_assign) {
+-			ret = q6apm_dai_assign_memory(substream, pdata);
+-			if (ret) {
+-				q6apm_dai_memory_unmap(component, substream);
+-				return ret;
+-			}
+-		}
+ 	}
+ 
+ 	return 0;
+
+From 1e3686d957055e2c0dac8155fe398a9f52bfea37 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:02 +0530
+Subject: [PATCH 06/14] Revert "FROMLIST: dt-bindings: sound: qcom,q6apm-dai:
+ add optional qcom,vmid"
+
+This reverts commit d37407100777c55aa412a7af2ebcb82119479803.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ .../devicetree/bindings/sound/qcom,q6apm-dai.yaml      | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+index b767625985a74..9e5b30d9c6e62 100644
+--- a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
++++ b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+@@ -20,16 +20,6 @@ properties:
+     minItems: 1
+     maxItems: 2
+ 
+-  qcom,vmid:
+-    description: Optional list of destination VMIDs to share PCM DMA buffers with.
+-      HLOS retains RW access as source owner and must not be listed.
+-    $ref: /schemas/types.yaml#/definitions/uint32-array
+-    items:
+-      minimum: 1
+-      maximum: 31
+-    minItems: 1
+-    maxItems: 8
+-
+ required:
+   - compatible
+   - iommus
+
+From 6c83218fec1100b5c7b8f681ce0f38f4fffd3515 Mon Sep 17 00:00:00 2001
+From: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Date: Wed, 23 Sep 2026 22:03:40 +0530
+Subject: [PATCH 07/14] FROMGIT: ASoC: dt-bindings: qcom,q6apm-dai: add
+ memory-region and relax iommus
+
+On modem-DSP (mDSP) platforms the DSP runs in a stage-2 protected
+context and cannot use the SMMU. PCM buffers must live in reserved-memory
+carveouts that are SCM-assigned to the appropriate VMIDs.
+
+Add a memory-region property (1-2 entries) for the control-path and
+data-path carveouts, and require q6apm-dais nodes to describe exactly
+one access path: iommus for SMMU-backed systems or memory-region for
+mDSP systems. Remove iommus from the common required list since mDSP
+platforms have neither IOMMU nor VMID DT properties.
+
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260923-vmid-v4-v6-3-3d61a0319b1c@oss.qualcomm.com
+Signed-off-by: Mark Brown <broonie@kernel.org>
+---
+ .../bindings/sound/qcom,q6apm-dai.yaml          | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+index 9e5b30d9c6e62..c1f9fc9eab645 100644
+--- a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
++++ b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+@@ -20,9 +20,24 @@ properties:
+     minItems: 1
+     maxItems: 2
+ 
++  memory-region:
++    minItems: 1
++    items:
++      - description:
++          Control-path buffer (audio_heap_mem) for platforms where the DSP
++          runs in a stage-2 protected context (e.g. modem-DSP).
++      - description:
++          Data-path buffer pool from which per-stream DMA buffers are
++          allocated.
++
+ required:
+   - compatible
+-  - iommus
++
++oneOf:
++  - required:
++      - iommus
++  - required:
++      - memory-region
+ 
+ additionalProperties: false
+ 
+
+From a5c9080b4546d74d83ec5174328cb6621862e63d Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 16:57:03 +0530
+Subject: [PATCH 08/14] Revert "FROMLIST: ASoC: qcom: q6apm-dai: add VMID-based
+ SCM assignment for mDSP buffers"
+
+This reverts commit e6c3f9fdb8d697953b67d37ed75d4d88cb12b0ab.
+
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 158 +------------------------------
+ 1 file changed, 2 insertions(+), 156 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index cc9e835c3ae0d..c5ca70afdf1dc 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -14,7 +14,6 @@
+ #include <asm/div64.h>
+ #include <asm/dma.h>
+ #include <linux/dma-mapping.h>
+-#include <linux/firmware/qcom/qcom_scm.h>
+ #include <sound/pcm_params.h>
+ #include "q6apm.h"
+ 
+@@ -34,8 +33,6 @@
+ #define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
+ #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
+ #define COMPR_PLAYBACK_MIN_NUM_FRAGMENTS (4)
+-#define Q6APM_MAX_VMIDS 8
+-#define Q6APM_SCM_MAX_VMID 31
+ #define SID_MASK_DEFAULT	0xF
+ 
+ static const struct snd_compr_codec_caps q6apm_compr_caps = {
+@@ -81,106 +78,10 @@ struct q6apm_dai_rtd {
+ 	bool notify_on_drain;
+ };
+ 
+-struct q6apm_scm_region {
+-	phys_addr_t dma_addr;
+-	unsigned int size;
+-	u64 src_perms;
+-	bool assigned;
+-};
+-
+ struct q6apm_dai_data {
+ 	long long sid;
+-	int num_vmids;
+-	u32 vmids[Q6APM_MAX_VMIDS];
+-	bool use_scm_assign;
+-	struct q6apm_scm_region scm_regions[SNDRV_PCM_STREAM_LAST + 1];
+ };
+ 
+-static int q6apm_dai_assign_memory(struct snd_pcm_substream *substream,
+-				   struct q6apm_dai_data *pdata)
+-{
+-	struct q6apm_scm_region *scm_region = &pdata->scm_regions[substream->stream];
+-	struct qcom_scm_vmperm *dst_vmids;
+-	int dst_count = 0;
+-	int ret;
+-	int i;
+-
+-	if (!pdata->use_scm_assign || pdata->num_vmids <= 0 || scm_region->assigned)
+-		return 0;
+-
+-	if (!substream->dma_buffer.addr)
+-		return -ENOMEM;
+-
+-	dst_vmids = kcalloc(pdata->num_vmids + 1, sizeof(*dst_vmids), GFP_KERNEL);
+-	if (!dst_vmids)
+-		return -ENOMEM;
+-
+-	/* Always keep HLOS RW so CPU can continue buffer access. */
+-	dst_vmids[dst_count].vmid = QCOM_SCM_VMID_HLOS;
+-	dst_vmids[dst_count].perm = QCOM_SCM_PERM_RW;
+-	dst_count++;
+-
+-	for (i = 0; i < pdata->num_vmids; i++) {
+-		/*
+-		 * Probe-time validation rejects HLOS in qcom,vmid, so this is
+-		 * only a defensive check for future non-DT vmids[] population.
+-		 */
+-		if (WARN_ON_ONCE(pdata->vmids[i] == QCOM_SCM_VMID_HLOS))
+-			continue;
+-
+-		dst_vmids[dst_count].vmid = pdata->vmids[i];
+-		dst_vmids[dst_count].perm = QCOM_SCM_PERM_RW;
+-		dst_count++;
+-	}
+-
+-	/* Nothing to assign beyond HLOS access. */
+-	if (dst_count == 1) {
+-		kfree(dst_vmids);
+-		return 0;
+-	}
+-
+-	scm_region->dma_addr = substream->dma_buffer.addr;
+-	scm_region->size = ALIGN(BUFFER_BYTES_MAX, PAGE_SIZE);
+-	scm_region->src_perms = BIT_ULL(QCOM_SCM_VMID_HLOS);
+-
+-	ret = qcom_scm_assign_mem(scm_region->dma_addr, scm_region->size,
+-				  &scm_region->src_perms, dst_vmids, dst_count);
+-	kfree(dst_vmids);
+-	if (ret)
+-		return ret;
+-
+-	scm_region->assigned = true;
+-	return 0;
+-}
+-
+-static int q6apm_dai_unassign_memory(struct snd_soc_component *component,
+-				     struct snd_pcm_substream *substream,
+-				     struct q6apm_dai_data *pdata)
+-{
+-	struct q6apm_scm_region *scm_region = &pdata->scm_regions[substream->stream];
+-	struct qcom_scm_vmperm hlos = {
+-		.vmid = QCOM_SCM_VMID_HLOS,
+-		.perm = QCOM_SCM_PERM_RW,
+-	};
+-	struct device *dev = component->dev;
+-	int ret;
+-
+-	if (!pdata->use_scm_assign || !scm_region->assigned)
+-		return 0;
+-
+-	ret = qcom_scm_assign_mem(scm_region->dma_addr, scm_region->size,
+-				  &scm_region->src_perms, &hlos, 1);
+-	if (!ret) {
+-		scm_region->assigned = false;
+-		scm_region->src_perms = BIT_ULL(QCOM_SCM_VMID_HLOS);
+-	} else {
+-		dev_err(dev, "Failed to unassign DMA buffer %pa from VMIDs: %d\n",
+-			&scm_region->dma_addr, ret);
+-	}
+-
+-	return ret;
+-}
+-
+ static const struct snd_pcm_hardware q6apm_dai_hardware_capture = {
+ 	.info =                 (SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_BLOCK_TRANSFER |
+ 				 SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED |
+@@ -576,9 +477,6 @@ static int q6apm_dai_hw_params(struct snd_soc_component *component,
+ 	return 0;
+ }
+ 
+-static void q6apm_dai_memory_unmap(struct snd_soc_component *component,
+-				   struct snd_pcm_substream *substream);
+-
+ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ 				struct snd_pcm_substream *substream, int graph_id)
+ {
+@@ -658,25 +556,15 @@ static void q6apm_dai_memory_unmap(struct snd_soc_component *component,
+ 
+ static void q6apm_dai_pcm_free(struct snd_soc_component *component, struct snd_pcm *pcm)
+ {
+-	struct q6apm_dai_data *pdata = snd_soc_component_get_drvdata(component);
+ 	struct snd_pcm_substream *substream;
+ 
+-	if (!pdata)
+-		return;
+-
+ 	substream = pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream;
+-	if (substream) {
+-		if (pdata->use_scm_assign)
+-			q6apm_dai_unassign_memory(component, substream, pdata);
++	if (substream)
+ 		q6apm_dai_memory_unmap(component, substream);
+-	}
+ 
+ 	substream = pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream;
+-	if (substream) {
+-		if (pdata->use_scm_assign)
+-			q6apm_dai_unassign_memory(component, substream, pdata);
++	if (substream)
+ 		q6apm_dai_memory_unmap(component, substream);
+-	}
+ }
+ 
+ static int q6apm_dai_compr_open(struct snd_soc_component *component,
+@@ -1062,7 +950,6 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 	struct device_node *node = dev->of_node;
+ 	struct q6apm_dai_data *pdata;
+ 	struct of_phandle_args args;
+-	int vmids;
+ 	int rc;
+ 
+ 	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+@@ -1075,47 +962,6 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 	else
+ 		pdata->sid = args.args[0] & SID_MASK_DEFAULT;
+ 
+-	vmids = of_property_count_u32_elems(node, "qcom,vmid");
+-	if (vmids == -EINVAL) {
+-		pdata->num_vmids = 0;
+-		pdata->use_scm_assign = false;
+-	} else if (vmids < 0) {
+-		return vmids;
+-	} else if (vmids == 0) {
+-		dev_err(dev, "qcom,vmid must contain at least one VMID\n");
+-		return -EINVAL;
+-	} else if (vmids > Q6APM_MAX_VMIDS) {
+-		dev_err(dev, "qcom,vmid: %d VMIDs exceeds maximum of %d\n",
+-			vmids, Q6APM_MAX_VMIDS);
+-		return -EINVAL;
+-	}
+-
+-	if (vmids > 0) {
+-		int i;
+-
+-		rc = of_property_read_u32_array(node, "qcom,vmid",
+-						pdata->vmids, vmids);
+-		if (rc)
+-			return rc;
+-		for (i = 0; i < vmids; i++) {
+-			if (pdata->vmids[i] == QCOM_SCM_VMID_HLOS) {
+-				dev_err(dev, "qcom,vmid must not include HLOS VMID (%u)\n",
+-					QCOM_SCM_VMID_HLOS);
+-				return -EINVAL;
+-			}
+-			if (pdata->vmids[i] > Q6APM_SCM_MAX_VMID) {
+-				dev_err(dev, "qcom,vmid[%d]=%u exceeds SCM max VMID %u\n",
+-					i, pdata->vmids[i], Q6APM_SCM_MAX_VMID);
+-				return -EINVAL;
+-			}
+-		}
+-		pdata->num_vmids = vmids;
+-		pdata->use_scm_assign = true;
+-	}
+-
+-	if (pdata->use_scm_assign && !qcom_scm_is_available())
+-		return -EPROBE_DEFER;
+-
+ 	dev_set_drvdata(dev, pdata);
+ 
+ 	return devm_snd_soc_register_component(dev, &q6apm_fe_dai_component, NULL, 0);
+
+From 49cb8c40f337208b09f5722793e4f31d67f026a2 Mon Sep 17 00:00:00 2001
+From: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Date: Wed, 23 Sep 2026 22:03:41 +0530
+Subject: [PATCH 09/14] FROMGIT: ASoC: qcom: q6apm-dai: add SCM buffer
+ assignment for mDSP platforms
+
+On platforms such as Qualcomm Shikra, audio is served by the modem DSP
+(mDSP) which runs in a stage-2 protected context. Unlike ADSP targets
+where SMMU-mapped system RAM is directly accessible, the mDSP cannot
+reach the PCM buffers unless they are explicitly SCM-assigned to the
+appropriate Virtual Machine IDs (VMIDs). Without this assignment, audio
+does not function on these platforms.
+
+At probe time, the driver reads the GPR domain_id from the parent APM
+device to determine which DSP serves audio. When domain_id matches
+GPR_DOMAIN_ID_ADSP the existing SMMU/iommus path is taken and no new
+code is exercised. When domain_id matches GPR_DOMAIN_ID_MODEM, the
+driver verifies that qcom_scm is available (deferring otherwise) and
+that iommus is absent (the two mechanisms are mutually exclusive), then
+enables the SCM assignment path.
+
+In the SCM path the driver parses the optional memory-region entries in
+DT. The first entry (memory-region[0] / audio_heap_mem) is the
+control-path carveout used by the DSP firmware for command traffic; since
+the mDSP operates on stage-2 protected memory, this carveout must be
+SCM-assigned at probe time itself for the firmware to function. It is
+SCM-assigned to HLOS (retained as source owner, RW) plus MSS_MSA and
+LPASS (consumer VMIDs, both RW) and restored to HLOS-only ownership via
+devm_add_action_or_reset() at device removal. The second entry
+(memory-region[1]) is the data-path buffer pool from which per-stream
+DMA buffers are carved out. This pool is attached via
+of_reserved_mem_device_init_by_idx() so that PCM buffers allocate
+directly from the carveout instead of system RAM.
+
+The data-path pool (memory-region[1]) is SCM-assigned to the consumer
+VMIDs as a single whole-pool operation at probe time, rather than
+per-stream in pcm_new()/compr_open(). qcom_scm_assign_mem() consumes an
+entry in a small fixed-size TZ memory-protection table that is shared
+platform-wide; assigning individual per-stream slices (up to
+Q6APM_POOL_MAX_STREAMS times) exhausts that table and hangs the SMC
+call, which was observed as a crash while bringing up the sound card on
+Shikra. Since the whole pool is already accessible to the mDSP once
+assigned, pcm_new()/pcm_free()/compr_open()/compr_free() skip the
+per-buffer SCM assign/unassign entirely when the data-path pool is in
+use (has_reserved_mem), and only fall back to per-buffer assignment when
+use_scm_assign is set without a data-path pool present.
+
+Compressed audio streams follow the same pattern: the DMA buffer
+allocated in compr_open() is SCM-assigned immediately after allocation
+and unassigned in compr_free() before the buffer is freed, unless it was
+carved from the pre-assigned data-path pool.
+
+The VMIDs are static per SoC and hardcoded in the driver (HLOS, MSS_MSA,
+LPASS) rather than read from DT, following the upstream pattern used by
+rmtfs_mem and qcom_q6v5_pas. Buffer constraints are capped at
+reserved_buf_size when the data-path pool is present, and
+snd_pcm_set_fixed_buffer_all() is used for both paths so the carveout is
+not subject to the preallocate_dma module parameter.
+
+All new code paths are gated on use_scm_assign (false when domain_id is
+not GPR_DOMAIN_ID_MODEM), ensuring existing ADSP/iommus targets are
+completely unaffected.
+
+Co-developed-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260923-vmid-v4-v6-4-3d61a0319b1c@oss.qualcomm.com
+Signed-off-by: Mark Brown <broonie@kernel.org>
+---
+ arch/arm64/boot/dts/qcom/shikra.dtsi |   2 -
+ sound/soc/qcom/Kconfig               |   1 +
+ sound/soc/qcom/qdsp6/q6apm-dai.c     | 320 +++++++++++++++++++++++++--
+ 3 files changed, 308 insertions(+), 15 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra.dtsi b/arch/arm64/boot/dts/qcom/shikra.dtsi
+index 1bb3dcf05dff8..123e497ac2f20 100644
+--- a/arch/arm64/boot/dts/qcom/shikra.dtsi
++++ b/arch/arm64/boot/dts/qcom/shikra.dtsi
+@@ -2877,8 +2877,6 @@
+ 							compatible = "qcom,q6apm-dais";
+ 							memory-region = <&audio_heap_mem
+ 									 &audio_mdsp_carveout_mem>;
+-							qcom,vmid = <QCOM_SCM_VMID_LPASS
+-								     QCOM_SCM_VMID_MSS_MSA>;
+ 						};
+ 					};
+ 
+diff --git a/sound/soc/qcom/Kconfig b/sound/soc/qcom/Kconfig
+index 089335058cdbd..8b66277104128 100644
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -112,6 +112,7 @@ config SND_SOC_QDSP6_ASM_DAI
+ config SND_SOC_QDSP6_APM_DAI
+ 	tristate
+ 	select SND_SOC_COMPRESS
++	select QCOM_SCM
+ 
+ config SND_SOC_QDSP6_APM_LPASS_DAI
+ 	tristate
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index c5ca70afdf1dc..0f7a52576e7eb 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -1,20 +1,25 @@
+ // SPDX-License-Identifier: GPL-2.0
+ // Copyright (c) 2021, Linaro Limited
+ 
+-#include <linux/init.h>
++#include <dt-bindings/firmware/qcom,scm.h>
++#include <dt-bindings/soc/qcom,gpr.h>
++#include <linux/dma-mapping.h>
+ #include <linux/err.h>
++#include <linux/firmware/qcom/qcom_scm.h>
++#include <linux/init.h>
+ #include <linux/module.h>
++#include <linux/mutex.h>
+ #include <linux/of.h>
++#include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+-#include <sound/soc.h>
+-#include <sound/soc-dapm.h>
+ #include <linux/spinlock.h>
+ #include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++#include <sound/soc-dapm.h>
+ #include <asm/div64.h>
+ #include <asm/dma.h>
+-#include <linux/dma-mapping.h>
+-#include <sound/pcm_params.h>
+ #include "q6apm.h"
+ 
+ #define DRV_NAME "q6apm-dai"
+@@ -35,6 +40,16 @@
+ #define COMPR_PLAYBACK_MIN_NUM_FRAGMENTS (4)
+ #define SID_MASK_DEFAULT	0xF
+ 
++#define Q6APM_MAX_SCM_REGIONS	16
++#define Q6APM_POOL_MAX_STREAMS	8
++
++struct q6apm_scm_region {
++	phys_addr_t addr;
++	size_t size;
++	u64 src_perms;
++	bool assigned;
++};
++
+ static const struct snd_compr_codec_caps q6apm_compr_caps = {
+ 	.num_descriptors = 1,
+ 	.descriptor[0].max_ch = 2,
+@@ -79,9 +94,103 @@ struct q6apm_dai_rtd {
+ };
+ 
+ struct q6apm_dai_data {
++	struct device *dev;
+ 	long long sid;
++	bool use_scm_assign;
++	bool has_reserved_mem;
++	size_t reserved_buf_size;
++	struct mutex scm_lock; /* protects scm_regions and num_scm_regions */
++	struct q6apm_scm_region scm_regions[Q6APM_MAX_SCM_REGIONS];
++	int num_scm_regions;
+ };
+ 
++static int q6apm_dai_scm_assign(struct q6apm_dai_data *pdata,
++				phys_addr_t addr, size_t size)
++{
++	struct qcom_scm_vmperm dst[] = {
++		{ .vmid = QCOM_SCM_VMID_HLOS, .perm = QCOM_SCM_PERM_RW },
++		{ .vmid = QCOM_SCM_VMID_MSS_MSA, .perm = QCOM_SCM_PERM_RW },
++		{ .vmid = QCOM_SCM_VMID_LPASS, .perm = QCOM_SCM_PERM_RW },
++	};
++	struct q6apm_scm_region *r;
++	u64 src = BIT(QCOM_SCM_VMID_HLOS);
++	int ret;
++
++	mutex_lock(&pdata->scm_lock);
++
++	if (pdata->num_scm_regions >= Q6APM_MAX_SCM_REGIONS) {
++		mutex_unlock(&pdata->scm_lock);
++		return -ENOSPC;
++	}
++
++	ret = qcom_scm_assign_mem(addr, size, &src, dst, ARRAY_SIZE(dst));
++	if (ret) {
++		mutex_unlock(&pdata->scm_lock);
++		return ret;
++	}
++
++	r = &pdata->scm_regions[pdata->num_scm_regions++];
++	r->addr = addr;
++	r->size = size;
++	r->src_perms = src;
++	r->assigned = true;
++
++	mutex_unlock(&pdata->scm_lock);
++
++	return 0;
++}
++
++static void q6apm_dai_scm_unassign(struct q6apm_dai_data *pdata,
++				   phys_addr_t addr)
++{
++	struct qcom_scm_vmperm hlos = {
++		.vmid = QCOM_SCM_VMID_HLOS,
++		.perm = QCOM_SCM_PERM_RW,
++	};
++	int i;
++
++	mutex_lock(&pdata->scm_lock);
++
++	for (i = 0; i < pdata->num_scm_regions; i++) {
++		if (pdata->scm_regions[i].addr != addr ||
++		    !pdata->scm_regions[i].assigned)
++			continue;
++
++		if (qcom_scm_assign_mem(addr, pdata->scm_regions[i].size,
++					&pdata->scm_regions[i].src_perms,
++					&hlos, 1)) {
++			dev_err(pdata->dev, "SCM unassign %pa failed\n", &addr);
++			mutex_unlock(&pdata->scm_lock);
++			return;
++		}
++
++		pdata->scm_regions[i].assigned = false;
++		pdata->num_scm_regions--;
++		pdata->scm_regions[i] = pdata->scm_regions[pdata->num_scm_regions];
++		mutex_unlock(&pdata->scm_lock);
++		return;
++	}
++
++	mutex_unlock(&pdata->scm_lock);
++}
++
++static void q6apm_dai_scm_cleanup(void *data)
++{
++	struct q6apm_dai_data *pdata = data;
++	int i;
++
++	for (i = pdata->num_scm_regions - 1; i >= 0; i--) {
++		if (pdata->scm_regions[i].assigned)
++			q6apm_dai_scm_unassign(pdata,
++					       pdata->scm_regions[i].addr);
++	}
++}
++
++static void q6apm_dai_reserved_mem_release(void *data)
++{
++	of_reserved_mem_device_release(data);
++}
++
+ static const struct snd_pcm_hardware q6apm_dai_hardware_capture = {
+ 	.info =                 (SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_BLOCK_TRANSFER |
+ 				 SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED |
+@@ -382,8 +491,11 @@ static int q6apm_dai_open(struct snd_soc_component *component,
+ 	}
+ 
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
++		size_t buf_max = pdata->has_reserved_mem ? pdata->reserved_buf_size :
++							   BUFFER_BYTES_MAX;
++
+ 		ret = snd_pcm_hw_constraint_minmax(runtime, SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
+-						   BUFFER_BYTES_MIN, BUFFER_BYTES_MAX);
++						   BUFFER_BYTES_MIN, buf_max);
+ 		if (ret < 0) {
+ 			dev_err(dev, "constraint for buffer bytes min max ret = %d\n", ret);
+ 			goto err;
+@@ -404,7 +516,8 @@ static int q6apm_dai_open(struct snd_soc_component *component,
+ 	}
+ 
+ 	runtime->private_data = prtd;
+-	runtime->dma_bytes = BUFFER_BYTES_MAX;
++	runtime->dma_bytes = pdata->has_reserved_mem ? pdata->reserved_buf_size :
++						       BUFFER_BYTES_MAX;
+ 	if (pdata->sid < 0)
+ 		prtd->phys = substream->dma_buffer.addr;
+ 	else
+@@ -482,6 +595,7 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ {
+ 	struct q6apm_dai_data *pdata;
+ 	struct device *dev = component->dev;
++	size_t buf_max;
+ 	phys_addr_t phys;
+ 	int ret;
+ 
+@@ -491,12 +605,15 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ 		return -EINVAL;
+ 	}
+ 
++	buf_max = pdata->has_reserved_mem ? pdata->reserved_buf_size :
++					    BUFFER_BYTES_MAX;
++
+ 	if (pdata->sid < 0)
+ 		phys = substream->dma_buffer.addr;
+ 	else
+ 		phys = substream->dma_buffer.addr | (pdata->sid << 32);
+ 
+-	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys, BUFFER_BYTES_MAX);
++	ret = q6apm_map_memory_fixed_region(dev, graph_id, phys, buf_max);
+ 	if (ret < 0)
+ 		dev_err(dev, "Audio Start: Buffer Allocation failed rc = %d\n", ret);
+ 
+@@ -506,11 +623,19 @@ static int q6apm_dai_memory_map(struct snd_soc_component *component,
+ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc_pcm_runtime *rtd)
+ {
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
++	struct q6apm_dai_data *pdata;
+ 	struct snd_pcm *pcm = rtd->pcm;
+-	int size = BUFFER_BYTES_MAX;
++	int size = BUFFER_BYTES_MAX + PAGE_SIZE;
+ 	int graph_id, ret;
+ 	struct snd_pcm_substream *substream;
+ 
++	pdata = snd_soc_component_get_drvdata(component);
++	if (!pdata)
++		return -EINVAL;
++
++	if (pdata->has_reserved_mem)
++		size = pdata->reserved_buf_size + PAGE_SIZE;
++
+ 	graph_id = cpu_dai->driver->id;
+ 
+ 	ret = snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV, component->dev, size);
+@@ -520,16 +645,46 @@ static int q6apm_dai_pcm_new(struct snd_soc_component *component, struct snd_soc
+ 	/* Note: DSP backend dais are uni-directional ONLY(either playback or capture) */
+ 	if (pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream) {
+ 		substream = pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream;
++		if (pdata->use_scm_assign && !pdata->has_reserved_mem) {
++			ret = q6apm_dai_scm_assign(pdata,
++						   substream->dma_buffer.addr,
++						   ALIGN(size, PAGE_SIZE));
++			if (ret) {
++				dev_err(component->dev,
++					"SCM assign buffer failed: %d\n", ret);
++				return ret;
++			}
++		}
++
+ 		ret = q6apm_dai_memory_map(component, substream, graph_id);
+-		if (ret)
++		if (ret) {
++			if (pdata->use_scm_assign && !pdata->has_reserved_mem)
++				q6apm_dai_scm_unassign(pdata,
++						       substream->dma_buffer.addr);
+ 			return ret;
++		}
+ 	}
+ 
+ 	if (pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream) {
+ 		substream = pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream;
++		if (pdata->use_scm_assign && !pdata->has_reserved_mem) {
++			ret = q6apm_dai_scm_assign(pdata,
++						   substream->dma_buffer.addr,
++						   ALIGN(size, PAGE_SIZE));
++			if (ret) {
++				dev_err(component->dev,
++					"SCM assign buffer failed: %d\n", ret);
++				return ret;
++			}
++		}
++
+ 		ret = q6apm_dai_memory_map(component, substream, graph_id);
+-		if (ret)
++		if (ret) {
++			if (pdata->use_scm_assign && !pdata->has_reserved_mem)
++				q6apm_dai_scm_unassign(pdata,
++						       substream->dma_buffer.addr);
+ 			return ret;
++		}
+ 	}
+ 
+ 	return 0;
+@@ -556,15 +711,26 @@ static void q6apm_dai_memory_unmap(struct snd_soc_component *component,
+ 
+ static void q6apm_dai_pcm_free(struct snd_soc_component *component, struct snd_pcm *pcm)
+ {
++	struct q6apm_dai_data *pdata;
+ 	struct snd_pcm_substream *substream;
+ 
++	pdata = snd_soc_component_get_drvdata(component);
++
+ 	substream = pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream;
+-	if (substream)
++	if (substream) {
+ 		q6apm_dai_memory_unmap(component, substream);
++		if (pdata && pdata->use_scm_assign && !pdata->has_reserved_mem)
++			q6apm_dai_scm_unassign(pdata,
++					       substream->dma_buffer.addr);
++	}
+ 
+ 	substream = pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream;
+-	if (substream)
++	if (substream) {
+ 		q6apm_dai_memory_unmap(component, substream);
++		if (pdata && pdata->use_scm_assign && !pdata->has_reserved_mem)
++			q6apm_dai_scm_unassign(pdata,
++					       substream->dma_buffer.addr);
++	}
+ }
+ 
+ static int q6apm_dai_compr_open(struct snd_soc_component *component,
+@@ -603,6 +769,17 @@ static int q6apm_dai_compr_open(struct snd_soc_component *component,
+ 	if (ret)
+ 		return ret;
+ 
++	if (pdata->use_scm_assign && !pdata->has_reserved_mem) {
++		ret = q6apm_dai_scm_assign(pdata, prtd->dma_buffer.addr,
++					   ALIGN(size, PAGE_SIZE));
++		if (ret) {
++			dev_err(dev, "SCM assign compr buffer failed: %d\n",
++				ret);
++			snd_dma_free_pages(&prtd->dma_buffer);
++			return ret;
++		}
++	}
++
+ 	if (pdata->sid < 0)
+ 		prtd->phys = prtd->dma_buffer.addr;
+ 	else
+@@ -620,11 +797,16 @@ static int q6apm_dai_compr_free(struct snd_soc_component *component,
+ {
+ 	struct snd_compr_runtime *runtime = stream->runtime;
+ 	struct q6apm_dai_rtd *prtd = runtime->private_data;
++	struct q6apm_dai_data *pdata;
++
++	pdata = snd_soc_component_get_drvdata(component);
+ 
+ 	q6apm_graph_stop(prtd->graph);
+ 	q6apm_free_fragments(prtd->graph, SNDRV_PCM_STREAM_PLAYBACK);
+ 	q6apm_unmap_memory_fixed_region(component->dev, prtd->graph->id);
+ 	q6apm_graph_close(prtd->graph);
++	if (pdata && pdata->use_scm_assign && !pdata->has_reserved_mem)
++		q6apm_dai_scm_unassign(pdata, prtd->dma_buffer.addr);
+ 	snd_dma_free_pages(&prtd->dma_buffer);
+ 	prtd->graph = NULL;
+ 	kfree(prtd);
+@@ -948,6 +1130,7 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct device_node *node = dev->of_node;
++	struct q6apm *apm = dev_get_drvdata(dev->parent);
+ 	struct q6apm_dai_data *pdata;
+ 	struct of_phandle_args args;
+ 	int rc;
+@@ -956,12 +1139,123 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 	if (!pdata)
+ 		return -ENOMEM;
+ 
++	pdata->dev = dev;
++	mutex_init(&pdata->scm_lock);
++
+ 	rc = of_parse_phandle_with_fixed_args(node, "iommus", 1, 0, &args);
+ 	if (rc < 0)
+ 		pdata->sid = -1;
+ 	else
+ 		pdata->sid = args.args[0] & SID_MASK_DEFAULT;
+ 
++	if (apm && apm->gdev &&
++	    apm->gdev->domain_id == GPR_DOMAIN_ID_MODEM) {
++		if (!qcom_scm_is_available())
++			return -EPROBE_DEFER;
++
++		if (pdata->sid >= 0) {
++			dev_err(dev,
++				"iommus and mDSP SCM path are mutually exclusive\n");
++			return -EINVAL;
++		}
++
++		pdata->use_scm_assign = true;
++
++		rc = devm_add_action_or_reset(dev, q6apm_dai_scm_cleanup,
++					      pdata);
++		if (rc)
++			return rc;
++	}
++
++	if (pdata->use_scm_assign) {
++		int mem_count;
++
++		mem_count = of_count_phandle_with_args(node, "memory-region",
++						       NULL);
++		if (mem_count >= 1) {
++			struct device_node *mem_node;
++			struct reserved_mem *rmem;
++
++			mem_node = of_parse_phandle(node, "memory-region", 0);
++			rmem = of_reserved_mem_lookup(mem_node);
++			of_node_put(mem_node);
++			if (!rmem) {
++				dev_err(dev,
++					"memory-region[0]: lookup failed\n");
++				return -ENODEV;
++			}
++
++			rc = q6apm_dai_scm_assign(pdata, rmem->base,
++						  ALIGN(rmem->size, PAGE_SIZE));
++			if (rc) {
++				dev_err(dev,
++					"SCM assign memory-region[0] failed: %d\n",
++					rc);
++				return rc;
++			}
++		}
++
++		if (mem_count >= 2) {
++			struct device_node *mem_node;
++			struct reserved_mem *rmem;
++			size_t per_stream;
++
++			mem_node = of_parse_phandle(node, "memory-region", 1);
++			rmem = of_reserved_mem_lookup(mem_node);
++			of_node_put(mem_node);
++			if (!rmem) {
++				dev_err(dev,
++					"memory-region[1]: lookup failed\n");
++				return -ENODEV;
++			}
++
++			per_stream = rmem->size / Q6APM_POOL_MAX_STREAMS;
++			if (per_stream <= PAGE_SIZE) {
++				dev_err(dev,
++					"reserved-memory pool too small: %pa bytes\n",
++					&rmem->size);
++				return -EINVAL;
++			}
++
++			/*
++			 * Assign the whole pool to the consumer VMIDs once here,
++			 * instead of per-stream in pcm_new()/compr_open(). Each
++			 * qcom_scm_assign_mem() call consumes an entry in a small
++			 * fixed-size TZ memory-protection table shared platform-wide;
++			 * assigning per-stream-slice (up to Q6APM_POOL_MAX_STREAMS
++			 * times) exhausts that table and hangs the SMC call.
++			 */
++			rc = q6apm_dai_scm_assign(pdata, rmem->base,
++						  ALIGN(rmem->size, PAGE_SIZE));
++			if (rc) {
++				dev_err(dev,
++					"SCM assign memory-region[1] failed: %d\n",
++					rc);
++				return rc;
++			}
++
++			rc = of_reserved_mem_device_init_by_idx(dev, node, 1);
++			if (rc) {
++				dev_err(dev,
++					"reserved-memory pool init failed: %d\n",
++					rc);
++				return rc;
++			}
++
++			rc = devm_add_action_or_reset(dev,
++						      q6apm_dai_reserved_mem_release,
++						      dev);
++			if (rc)
++				return rc;
++
++			pdata->reserved_buf_size =
++				min_t(size_t,
++				      per_stream - PAGE_SIZE,
++				      BUFFER_BYTES_MAX);
++			pdata->has_reserved_mem = true;
++		}
++	}
++
+ 	dev_set_drvdata(dev, pdata);
+ 
+ 	return devm_snd_soc_register_component(dev, &q6apm_fe_dai_component, NULL, 0);
+
+From 9ade2b531274da26677a0e76b584194121cfdeac Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Thu, 19 Nov 2026 15:37:29 +0530
+Subject: [PATCH 10/14] FROMLIST: dt-bindings: sound: qcom,q6apm-dai: allow
+ Shikra compatible
+
+Shikra's q6apm DAI needs a SoC-specific compatible so that the Qualcomm
+SMMU implementation can select the identity domain required by its
+firmware ABI.  The ASoC driver continues to bind using the generic
+fallback compatible.
+
+Allow the Shikra compatible followed by the existing generic compatible.
+
+Link: https://lore.kernel.org/all/20261119164705.1594066-2-mohit.sharma@oss.qualcomm.com/
+Co-developed-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+index c1f9fc9eab645..c5eea6698ab65 100644
+--- a/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
++++ b/Documentation/devicetree/bindings/sound/qcom,q6apm-dai.yaml
+@@ -14,7 +14,11 @@ description: |
+ 
+ properties:
+   compatible:
+-    const: qcom,q6apm-dais
++    oneOf:
++      - const: qcom,q6apm-dais
++      - items:
++          - const: qcom,shikra-q6apm-dais
++          - const: qcom,q6apm-dais
+ 
+   iommus:
+     minItems: 1
+
+From e04f20e2560c6810ceb5cb51a663e5b8ffcfc89c Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Thu, 19 Nov 2026 15:37:47 +0530
+Subject: [PATCH 11/14] FROMLIST: iommu: arm-smmu-qcom: use identity domain for
+ Shikra q6apm DAI
+
+Shikra's q6apm DAI is hosted on the modem DSP under SMMU stream ID
+0x1cc.  Its firmware consumes the SID-tagged shared-memory addresses as
+physical addresses, so a translating domain leaves those addresses
+unmapped and causes context faults when Linux owns the SMMU under EL2.
+
+Add the Shikra q6apm DAI compatible to the Qualcomm SMMU client match
+table.  This selects an identity domain for this stream while retaining
+an SMMU mapping scoped to its own stream ID.
+
+Link: https://lore.kernel.org/all/20261119164705.1594066-3-mohit.sharma@oss.qualcomm.com/
+Co-developed-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+index 2a8a47030b133..471d44dcfcd4e 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -433,6 +433,7 @@ static const struct of_device_id qcom_smmu_client_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,sdm670-mdss" },
+ 	{ .compatible = "qcom,sdm845-mdss" },
+ 	{ .compatible = "qcom,sdm845-mss-pil" },
++	{ .compatible = "qcom,shikra-q6apm-dais" },
+ 	{ .compatible = "qcom,sm6115-mdss" },
+ 	{ .compatible = "qcom,sm6350-mdss" },
+ 	{ .compatible = "qcom,sm6375-mdss" },
+
+From d35bb72a7768463e612586b6bcb01009f1192b59 Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Thu, 19 Nov 2026 15:50:05 +0530
+Subject: [PATCH 12/14] FROMLIST: arm64: dts: qcom: shikra: add q6apm DAI
+ compatible
+
+Add the Shikra-specific compatible to the q6apm DAI node while retaining
+the generic fallback used by the ASoC driver.  The specific compatible
+lets arm-smmu-qcom select the identity domain required by the firmware
+ABI when the EL2 overlay describes this stream to the SMMU.
+
+The EL2 stream description is part of the prerequisite Shikra EL2
+overlay series.
+
+Link: https://lore.kernel.org/all/20261119164705.1594066-4-mohit.sharma@oss.qualcomm.com/
+Co-developed-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ arch/arm64/boot/dts/qcom/shikra.dtsi | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra.dtsi b/arch/arm64/boot/dts/qcom/shikra.dtsi
+index 123e497ac2f20..ea334d75c7cdf 100644
+--- a/arch/arm64/boot/dts/qcom/shikra.dtsi
++++ b/arch/arm64/boot/dts/qcom/shikra.dtsi
+@@ -2874,7 +2874,8 @@
+ 						};
+ 
+ 						q6apmdai: dais {
+-							compatible = "qcom,q6apm-dais";
++							compatible = "qcom,shikra-q6apm-dais",
++								     "qcom,q6apm-dais";
+ 							memory-region = <&audio_heap_mem
+ 									 &audio_mdsp_carveout_mem>;
+ 						};
+
+From d2fa85f6a79e2d188350cb2ce205409760e61a7c Mon Sep 17 00:00:00 2001
+From: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Date: Wed, 18 Nov 2026 22:42:25 +0530
+Subject: [PATCH 13/14] FROMLIST: ASoC: qcom: q6apm-dai: allow the mDSP IOMMU
+ path
+
+The q6apm DAI currently selects SCM buffer assignment solely from the GPR
+domain.  This prevents an mDSP-backed DAI from using an IOMMU, even when
+the device tree provides an iommus property for environments where the
+mDSP stream is routed through the apps SMMU.
+
+Use the parsed stream ID to distinguish the two memory access models.  An
+mDSP DAI without an IOMMU continues to use SCM-assigned buffers, while an
+mDSP DAI with an IOMMU follows the existing DMA/IOMMU path.  This also
+avoids requiring SCM availability for the IOMMU configuration.
+
+Fixes: bb8afd437d79 ("ASoC: qcom: q6apm-dai: add SCM buffer assignment for mDSP platforms")
+Link: https://lore.kernel.org/all/20261119164705.1594066-5-mohit.sharma@oss.qualcomm.com/
+Co-developed-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+---
+ sound/soc/qcom/qdsp6/q6apm-dai.c | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm-dai.c b/sound/soc/qcom/qdsp6/q6apm-dai.c
+index 0f7a52576e7eb..bd0e3d53d015d 100644
+--- a/sound/soc/qcom/qdsp6/q6apm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6apm-dai.c
+@@ -1149,16 +1149,11 @@ static int q6apm_dai_probe(struct platform_device *pdev)
+ 		pdata->sid = args.args[0] & SID_MASK_DEFAULT;
+ 
+ 	if (apm && apm->gdev &&
+-	    apm->gdev->domain_id == GPR_DOMAIN_ID_MODEM) {
++	    apm->gdev->domain_id == GPR_DOMAIN_ID_MODEM &&
++	    pdata->sid < 0) {
+ 		if (!qcom_scm_is_available())
+ 			return -EPROBE_DEFER;
+ 
+-		if (pdata->sid >= 0) {
+-			dev_err(dev,
+-				"iommus and mDSP SCM path are mutually exclusive\n");
+-			return -EINVAL;
+-		}
+-
+ 		pdata->use_scm_assign = true;
+ 
+ 		rc = devm_add_action_or_reset(dev, q6apm_dai_scm_cleanup,
+
+From 26e2691456cc7024eccbeb26cfbc8e534229a859 Mon Sep 17 00:00:00 2001
+From: Komal Bajaj <komal.bajaj@oss.qualcomm.com>
+Date: Thu, 19 Nov 2026 12:00:00 +0530
+Subject: [PATCH 14/14] FROMLIST: arm64: dts: qcom: shikra: Add EL2 overlay for
+ remoteproc SMMU mappings
+
+Shikra boards currently boot Linux under a hypervisor, where the remote
+processor firmware IOMMU streams are managed by the hypervisor. When
+booting Linux directly at EL2 without the hypervisor, the IOMMU is
+instead managed by the consumer of this DeviceTree, so the firmware
+streams for each remote processor need to be described explicitly.
+
+Add an EL2-specific DT overlay and apply it to all Shikra EVK variants
+to produce an -el2.dtb alongside the normal DTB. For the q6apm DAI,
+replace the reserved-memory configuration with the apps SMMU stream
+description used when Linux owns the SMMU at EL2.
+
+Co-developed-by: Bibek Kumar Patro <bibek.patro@oss.qualcomm.com>
+Signed-off-by: Bibek Kumar Patro <bibek.patro@oss.qualcomm.com>
+Co-developed-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Signed-off-by: Mohit Sharma <mohit.sharma@oss.qualcomm.com>
+Co-developed-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Signed-off-by: Ajay Kumar Nandam <ajay.nandam@oss.qualcomm.com>
+Reviewed-by: Abel Vesa <abel.vesa@oss.qualcomm.com>
+Reviewed-by: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
+Link: https://lore.kernel.org/all/20261119-shikra-el2-v6-4-0e91a1467e79@oss.qualcomm.com/
+Signed-off-by: Komal Bajaj <komal.bajaj@oss.qualcomm.com>
+---
+ arch/arm64/boot/dts/qcom/shikra-el2.dtso | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra-el2.dtso b/arch/arm64/boot/dts/qcom/shikra-el2.dtso
+index 8bbf099e9d5e3..d6fd98f23510f 100644
+--- a/arch/arm64/boot/dts/qcom/shikra-el2.dtso
++++ b/arch/arm64/boot/dts/qcom/shikra-el2.dtso
+@@ -33,3 +33,8 @@
+ 		iommus = <&apps_smmu 0x01a2 0x0001>;
+ 	};
+ };
++
++&q6apmdai {
++	/delete-property/ memory-region;
++	iommus = <&apps_smmu 0x01cc 0x3>;
++};

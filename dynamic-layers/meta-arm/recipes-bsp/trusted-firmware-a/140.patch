@@ -1,0 +1,259 @@
+From e5f897a8ce73997b40c2dc4025b89d4a5db6a01d Mon Sep 17 00:00:00 2001
+From: Somesh Velupally <somegupt@qti.qualcomm.com>
+Date: Wed, 25 Nov 2026 17:29:42 +0530
+Subject: [PATCH 1/3] feat(qti): add QUPV3_0 VMID mappings for Shikra
+
+  Add VMID mappings for HAL_VMIDMT_QUPV3_0 on the Shikra platform,
+  assigning SIDs 0-6 and 16-25 to ACC_VMID_AP with the default memory
+  attribute. Wire the new g_vmid_map_qupv3_0 table into g_vmidmt_cfg,
+  replacing the previous NULL/0 entries.
+
+Upstream-Status: Pending
+Signed-off-by: Somesh Velupally <somegupt@qti.qualcomm.com>
+---
+ .../cfg/shikra/vmidmt_static_config.c         | 148 +++++++++++++++++-
+ 1 file changed, 146 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/qti/accesscontrol/cfg/shikra/vmidmt_static_config.c b/drivers/qti/accesscontrol/cfg/shikra/vmidmt_static_config.c
+index 1faf84889..002c5c7c1 100644
+--- a/drivers/qti/accesscontrol/cfg/shikra/vmidmt_static_config.c
++++ b/drivers/qti/accesscontrol/cfg/shikra/vmidmt_static_config.c
+@@ -153,6 +153,150 @@ static struct vmidmt_map g_vmid_map_crypto0_crypto[] = {
+ 	},
+ };
+ 
++/*
++ * VMID mappings for HAL_VMIDMT_QUPV3_0.
++ *
++ * SIDs 0-6 and 16-25 are owned by the HLOS
++ *
++ */
++static struct vmidmt_map g_vmid_map_qupv3_0[] = {
++	{
++		.sid_list = { 0 },
++		.num_sids = 1,
++		.index = 0,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 1 },
++		.num_sids = 1,
++		.index = 1,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 2 },
++		.num_sids = 1,
++		.index = 2,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 3 },
++		.num_sids = 1,
++		.index = 3,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 4 },
++		.num_sids = 1,
++		.index = 4,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 5 },
++		.num_sids = 1,
++		.index = 5,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 6 },
++		.num_sids = 1,
++		.index = 6,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 16 },
++		.num_sids = 1,
++		.index = 7,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 17 },
++		.num_sids = 1,
++		.index = 8,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 18 },
++		.num_sids = 1,
++		.index = 9,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 19 },
++		.num_sids = 1,
++		.index = 10,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 20 },
++		.num_sids = 1,
++		.index = 11,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 21 },
++		.num_sids = 1,
++		.index = 12,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 22 },
++		.num_sids = 1,
++		.index = 13,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 23 },
++		.num_sids = 1,
++		.index = 14,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 24 },
++		.num_sids = 1,
++		.index = 15,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++	{
++		.sid_list = { 25 },
++		.num_sids = 1,
++		.index = 16,
++		.vmid = ACC_VMID_AP,
++		.flags = ACC_VMIDMT_FLAG_STATIC_CONFIG,
++		.memattr = ACC_VMIDMT_MEMTYPE_DEFAULT,
++	},
++};
+ /*
+  * VMID mappings for HAL_VMIDMT_QPIC.
+  *
+@@ -270,8 +414,8 @@ const struct vmidmt_cfg g_vmidmt_cfg[] = {
+ 		.err_opt = VMIDMT_ERR_OPT,
+ 		.static_cfg = ACC_VMIDMT_STATIC_CONFIG_TZ,
+ 		.secure_bypass_vmid = ACC_VMID_NOACCESS,
+-		.vmid_map = NULL,
+-		.vmid_map_count = 0,
++		.vmid_map = g_vmid_map_qupv3_0,
++		.vmid_map_count = ARRAY_SIZE(g_vmid_map_qupv3_0),
+ 	},
+ 	{
+ 		.ssd_table = NULL,
+
+From fd62dde1d5227eb81a6d1529be86f25fc08f97f8 Mon Sep 17 00:00:00 2001
+From: Somesh Velupally <somegupt@qti.qualcomm.com>
+Date: Wed, 25 Nov 2026 17:30:17 +0530
+Subject: [PATCH 2/3] fix(qti): disable unused SNOC a2noc MPU region for Shikra
+
+  Clear the SNOC a2noc MPU region at index 0 by replacing MSA_DOMAIN
+  read/write VMIDs with NO_DOMAIN and setting the address range to
+  0xffffffff. This disables a previously configured MSA region that
+  is not applicable for this platform.
+
+Signed-off-by: Somesh Velupally <somegupt@qti.qualcomm.com>
+---
+ drivers/qti/accesscontrol/cfg/shikra/xpu_static_config.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/qti/accesscontrol/cfg/shikra/xpu_static_config.c b/drivers/qti/accesscontrol/cfg/shikra/xpu_static_config.c
+index 2a11034f6..d9d2cd8eb 100644
+--- a/drivers/qti/accesscontrol/cfg/shikra/xpu_static_config.c
++++ b/drivers/qti/accesscontrol/cfg/shikra/xpu_static_config.c
+@@ -2592,10 +2592,10 @@ struct rg_mpu_cfg snoc_a2noc_mpu_cfg[] = {
+ {
+ 	.index         = 0,
+ 	.flags         = APPS_S_DOMAIN,
+-	.read_vmid     = MSA_DOMAIN,
+-	.write_vmid    = MSA_DOMAIN,
+-	.start         = 0x05800000,
+-	.end           = 0x05880000,
++	.read_vmid     = NO_DOMAIN,
++	.write_vmid    = NO_DOMAIN,
++	.start         = 0xffffffff,
++	.end           = 0xffffffff,
+ },
+ {
+ 	.index         = 1,
+
+From 0247e31821c8804640a89d3b9619e0acda1a4b61 Mon Sep 17 00:00:00 2001
+From: Somesh Velupally <somegupt@qti.qualcomm.com>
+Date: Wed, 25 Nov 2026 17:30:40 +0530
+Subject: [PATCH 3/3] fix(qti): defer bypass pointer init until after NULL
+ check in vmidmt_hal
+
+  Move the initialization of bypass_bus and bypass_aux in
+  set_default_config() to after the cfg NULL guard. Previously these
+  pointers were derived from cfg before the NULL check, risking a NULL
+  dereference if an invalid cfg was passed.
+
+Signed-off-by: Somesh Velupally <somegupt@qti.qualcomm.com>
+---
+ drivers/qti/accesscontrol/vmidmt/vmidmt_hal.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/qti/accesscontrol/vmidmt/vmidmt_hal.c b/drivers/qti/accesscontrol/vmidmt/vmidmt_hal.c
+index 445a002b0..62182d456 100644
+--- a/drivers/qti/accesscontrol/vmidmt/vmidmt_hal.c
++++ b/drivers/qti/accesscontrol/vmidmt/vmidmt_hal.c
+@@ -163,8 +163,8 @@ static enum hal_vmidmt_status
+ set_default_config(const struct hal_vmidmt_info *p,
+ 		   const struct hal_vmidmt_default_vmid_config *cfg, bool sec)
+ {
+-	struct hal_vmidmt_bus_attrib *bypass_bus = cfg->p_bypass_bus_attrib;
+-	struct hal_vmidmt_aux_config *bypass_aux = cfg->p_bypass_aux_config;
++	struct hal_vmidmt_bus_attrib *bypass_bus;
++	struct hal_vmidmt_aux_config *bypass_aux;
+ 	uint32_t attrib = 0;
+ 	uint32_t config = 0;
+ 	uint32_t val = 0;
+@@ -173,6 +173,9 @@ set_default_config(const struct hal_vmidmt_info *p,
+ 	if (!cfg)
+ 		return HAL_VMIDMT_INVALID_PARAM;
+ 
++	bypass_bus = cfg->p_bypass_bus_attrib;
++	bypass_aux = cfg->p_bypass_aux_config;
++
+ 	if (bypass_bus &&
+ 	    bypass_bus->mem_attr > (1 << VMIDMT_MEMATTR_MAX_BITS) - 1)
+ 		return HAL_VMIDMT_INVALID_PARAM;

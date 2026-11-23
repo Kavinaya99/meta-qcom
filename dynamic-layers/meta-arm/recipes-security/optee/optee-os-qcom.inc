@@ -4,8 +4,13 @@ DEPENDS += "dtc-native"
 
 PV = "4.11.0-qcom-20261119+git"
 
+FILESEXTRAPATHS:prepend := "${THISDIR}/:"
+
 SRC_TAG = "tag=qcom-next-4.11-20261119"
 SRC_URI = "git://github.com/qualcomm-linux/optee_os.git;protocol=https;name=optee;nobranch=1;${SRC_TAG}"
+SRC_URI += "file://hawkm-init.patch"
+SRC_URI += "file://shikra_modem_pil_qcom_next.patch"
+
 SRCREV_optee = "e7510c9199ebbb8d2949204f57c0f8103f688129"
 
 # Enable PKCS#11 TA as part of the OP-TEE build

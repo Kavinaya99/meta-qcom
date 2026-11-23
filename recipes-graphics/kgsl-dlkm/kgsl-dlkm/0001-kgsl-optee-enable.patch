@@ -1,0 +1,453 @@
+kgsl: Add direct-MMIO SMMU aperture/HSR path for no-TZ OP-TEE boards
+
+On OP-TEE+KVM boards like Shikra there is no TZ/QTEE to service the
+SMMU aperture and BCL/tsense SCM calls, so per-process pagetables and
+related SCM-backed register programming cannot go through the
+existing qcom_scm_*/qtee_shmbridge_* path.
+
+Detect this at probe time from the absence of a zap-shader
+devicetree node and, when set, reprogram the SMMU aperture (S1CB0/
+S1CB1/CTL).
+ 
+Signed-off-by: Lokesh Kumar <lok@qti.qualcomm.com>
+
+Upstream-Status: Pending
+diff --git a/adreno.c b/adreno.c
+index 33a0b53f..f67a60b2 100644
+--- a/adreno.c
++++ b/adreno.c
+@@ -286,6 +286,17 @@ int adreno_get_firmware(struct adreno_device *adreno_dev,
+  */
+ #define GPU_PASID 13
+ 
++/* True when TZ/zap-shader is present */
++static bool adreno_check_zap_enabled(struct kgsl_device *device)
++{
++	struct device_node *np = of_get_child_by_name(device->pdev->dev.of_node,
++			"zap-shader");
++	bool present = of_device_is_available(np);
++
++	of_node_put(np);
++	return present;
++}
++
+ int adreno_zap_shader_load(struct adreno_device *adreno_dev,
+ 		const char *name)
+ {
+@@ -300,15 +311,10 @@ int adreno_zap_shader_load(struct adreno_device *adreno_dev,
+ 	ssize_t mem_size;
+ 	int ret;
+ 
+-	if (adreno_dev->zap_loaded || IS_ENABLED(CONFIG_QCOM_KVM_ENABLED))
++	if (adreno_dev->zap_loaded || IS_ENABLED(CONFIG_QCOM_KVM_ENABLED) ||
++			!device->mmu.zap_enabled)
+ 		return 0;
+ 
+-	np = of_get_child_by_name(dev->of_node, "zap-shader");
+-	if (!of_device_is_available(np)) {
+-		of_node_put(np);
+-		return 0;
+-	}
+-
+ 	/*
+ 	 * While loading the zap firmware, follow the priority order below to determine
+ 	 * the firmware name:
+@@ -2112,6 +2118,7 @@ int adreno_device_probe(struct platform_device *pdev,
+ 	dev_set_drvdata(dev, device);
+ 
+ 	device->pdev = pdev;
++	device->mmu.zap_enabled = adreno_check_zap_enabled(device);
+ 
+ 	adreno_update_soc_hw_revision_quirks(adreno_dev, pdev);
+ 
+@@ -2174,7 +2181,8 @@ int adreno_device_probe(struct platform_device *pdev,
+ 	device->pwrctrl.bus_width = adreno_dev->gpucore->bus_width;
+ 
+ 	device->mmu.secured = (IS_ENABLED(CONFIG_QCOM_SECURE_BUFFER) &&
+-		ADRENO_FEATURE(adreno_dev, ADRENO_CONTENT_PROTECTION));
++		ADRENO_FEATURE(adreno_dev, ADRENO_CONTENT_PROTECTION) &&
++		device->mmu.zap_enabled);
+ 
+ 	/* Probe the LLCC - this could return -EPROBE_DEFER */
+ 	status = adreno_probe_llcc(adreno_dev, pdev);
+diff --git a/adreno.h b/adreno.h
+index 29bf6b3c..5caa9934 100644
+--- a/adreno.h
++++ b/adreno.h
+@@ -1053,6 +1053,7 @@ struct adreno_debugbus_block {
+ 	unsigned int dwords;
+ };
+ 
++
+ struct adreno_gpudev {
+ 	/*
+ 	 * These registers are in a different location on different devices,
+diff --git a/adreno_a6xx.c b/adreno_a6xx.c
+index 5ad01813..cfae8d31 100644
+--- a/adreno_a6xx.c
++++ b/adreno_a6xx.c
+@@ -2380,6 +2380,7 @@ static void a619_holi_sptprac_disable(struct adreno_device *adreno_dev)
+ 		dev_err(device->dev, "power off SPTPRAC fail\n");
+ }
+ 
++
+ /* This is a non GMU/RGMU part */
+ const struct adreno_gpudev adreno_a6xx_gpudev = {
+ 	.reg_offsets = a6xx_register_offsets,
+diff --git a/adreno_a6xx.h b/adreno_a6xx.h
+index e2ffb5f5..e86aab00 100644
+--- a/adreno_a6xx.h
++++ b/adreno_a6xx.h
+@@ -70,6 +70,8 @@ struct adreno_a6xx_core {
+ 	const struct kgsl_regmap_list *vbif;
+ 	/** @vbif_count: Number of registers in @vbif */
+ 	u32 vbif_count;
++	/** @optee_gpu_regs: OP-TEE direct-MMIO register table for this chip, or NULL */
++	const struct kgsl_optee_gpu_regs *optee_gpu_regs;
+ 	/** @veto_fal10: veto status for fal10 feature */
+ 	bool veto_fal10;
+ 	/** @pdc_in_aop: True if PDC programmed in AOP */
+diff --git a/adreno_gen7.c b/adreno_gen7.c
+index 6fec62b6..24338ee7 100644
+--- a/adreno_gen7.c
++++ b/adreno_gen7.c
+@@ -1108,7 +1108,8 @@ int gen7_scm_gpu_init_cx_regs(struct adreno_device *adreno_dev)
+ 	if (adreno_is_gen7_9_x(adreno_dev))
+ 		gpu_req |= GPU_TSENSE_EN_REQ;
+ 
+-	ret = kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req);
++	ret = kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req,
++			device->mmu.zap_enabled);
+ 
+ 	/*
+ 	 * For targets that support this scm call to program BCL id , enable BCL.
+diff --git a/adreno_gen8.c b/adreno_gen8.c
+index 7b65dd9f..bc7ea8e3 100644
+--- a/adreno_gen8.c
++++ b/adreno_gen8.c
+@@ -2070,7 +2070,7 @@ void gen8_scm_gpu_tsense_default(struct adreno_device *adreno_dev, bool default_
+ 	if (!default_req)
+ 		gpu_req |= GPU_TSENSE_MEASURE_DEFAULT_DISABLE;
+ 
+-	kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req);
++	kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req, device->mmu.zap_enabled);
+ }
+ 
+ int gen8_scm_gpu_init_cx_regs(struct adreno_device *adreno_dev)
+@@ -2087,7 +2087,8 @@ int gen8_scm_gpu_init_cx_regs(struct adreno_device *adreno_dev)
+ 
+ 	gpu_req |= GPU_TSENSE_EN_REQ;
+ 
+-	ret = kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req);
++	ret = kgsl_scm_gpu_init_regs(&device->pdev->dev, gpu_req,
++			device->mmu.zap_enabled);
+ 
+ 	/*
+ 	 * For targets that support this scm call to program BCL id , enable BCL.
+diff --git a/kgsl_iommu.c b/kgsl_iommu.c
+index a23e3284..a2904a6c 100644
+--- a/kgsl_iommu.c
++++ b/kgsl_iommu.c
+@@ -9,6 +9,7 @@
+ #include <linux/io.h>
+ #include <linux/of_device.h>
+ #include <linux/of_platform.h>
++#include <linux/platform_device.h>
+ #include <linux/scatterlist.h>
+ #include <linux/qcom-iommu-util.h>
+ #include <linux/qcom-io-pgtable.h>
+@@ -36,6 +37,7 @@
+ #include "kgsl_pwrctrl.h"
+ #include "kgsl_sharedmem.h"
+ #include "kgsl_trace.h"
++#include "kgsl_util.h"
+ 
+ #define KGSL_IOMMU_SPLIT_TABLE_BASE 0x0001ff8000000000ULL
+ 
+@@ -1444,17 +1446,68 @@ static void _enable_gpuhtw_llc(struct kgsl_mmu *mmu, struct iommu_domain *domain
+ }
+ 
+ #if (KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE) || !defined(CONFIG_QCOM_SCM_ADDON)
+-static int _kgsl_set_smmu_aperture(u32 num_context_bank)
++static int _kgsl_set_smmu_aperture_scm(u32 num_context_bank)
+ {
+-	return qcom_scm_set_gpu_smmu_aperture(num_context_bank);
++        return qcom_scm_set_gpu_smmu_aperture(num_context_bank);
+ }
+ #else
+-static int _kgsl_set_smmu_aperture(u32 num_context_bank)
++static int _kgsl_set_smmu_aperture_scm(u32 num_context_bank)
+ {
+-	return qcom_scm_kgsl_set_smmu_aperture(num_context_bank);
++        return qcom_scm_kgsl_set_smmu_aperture(num_context_bank);
+ }
+ #endif
+ 
++static int _kgsl_set_smmu_aperture_direct(struct kgsl_device *device,
++		u32 aperture_offset, u32 num_context_bank)
++{
++	struct kgsl_iommu *iommu = KGSL_IOMMU(device);
++	u32 cb_reg_offset;
++
++	if (!iommu->aperture_regbase)
++		return -ENODEV;
++
++	cb_reg_offset = (iommu->regbase_phys + iommu->cb0_offset +
++		(num_context_bank * iommu->pagesize)) & 0xFFFFF;
++
++	writel_relaxed(cb_reg_offset, iommu->aperture_regbase + aperture_offset);
++
++	/* Make sure all of the preceding writes have posted */
++	wmb();
++
++	return 0;
++}
++
++static int _kgsl_set_smmu_aperture(struct kgsl_device *device,
++		u32 num_context_bank)
++{
++	struct kgsl_mmu *mmu = &device->mmu;
++	int status = 0;
++
++	status = _kgsl_set_smmu_aperture_scm(num_context_bank);
++
++	if(status) {
++	/* if zap is enabled and scm calls fail, return error*/
++		if(mmu->zap_enabled)
++			return -ENODEV;
++		else
++			return _kgsl_set_smmu_aperture_direct(device,
++			KGSL_IOMMU_APERTURE_S1CB0, num_context_bank);
++	}
++	return status;
++}
++
++static void _kgsl_set_smmu_aperture_ctl(struct kgsl_device *device)
++{
++	struct kgsl_iommu *iommu = KGSL_IOMMU(device);
++
++	if (!iommu->aperture_regbase)
++		return;
++
++	writel_relaxed(KGSL_IOMMU_APERTURE_CTL_S1CB1_EN,
++			iommu->aperture_regbase + KGSL_IOMMU_APERTURE_CTL);
++	wmb();
++}
++
+ int kgsl_set_smmu_aperture(struct kgsl_device *device,
+ 		struct kgsl_iommu_context *context)
+ {
+@@ -1463,9 +1516,9 @@ int kgsl_set_smmu_aperture(struct kgsl_device *device,
+ 	if (!test_bit(KGSL_MMU_SMMU_APERTURE, &device->mmu.features))
+ 		return 0;
+ 
+-	ret = _kgsl_set_smmu_aperture(context->cb_num);
++	ret = _kgsl_set_smmu_aperture(device, context->cb_num);
+ 	if (ret == -EBUSY)
+-		ret = _kgsl_set_smmu_aperture(context->cb_num);
++		ret = _kgsl_set_smmu_aperture(device, context->cb_num);
+ 
+ 	if (ret)
+ 		dev_err(&device->pdev->dev, "Unable to set the SMMU aperture: %d. The aperture needs to be set to use per-process pagetables\n",
+@@ -1485,6 +1538,13 @@ static void kgsl_iommu_enable_ptwalk(struct kgsl_iommu_context *context)
+ 	wmb();
+ }
+ 
++static int _kgsl_set_smmu_lpac_aperture(struct kgsl_device *device,
++		u32 num_context_bank)
++{
++	return _kgsl_set_smmu_aperture_direct(device,
++		KGSL_IOMMU_APERTURE_S1CB1, num_context_bank);
++}
++
+ int kgsl_set_smmu_lpac_aperture(struct kgsl_device *device,
+ 		struct kgsl_iommu_context *context)
+ {
+@@ -1495,9 +1555,9 @@ int kgsl_set_smmu_lpac_aperture(struct kgsl_device *device,
+ 			!ADRENO_FEATURE(adreno_dev, ADRENO_LPAC))
+ 		return 0;
+ 
+-	ret = qcom_scm_kgsl_set_smmu_lpac_aperture(context->cb_num);
++	ret = _kgsl_set_smmu_lpac_aperture(device, context->cb_num);
+ 	if (ret == -EBUSY)
+-		ret = qcom_scm_kgsl_set_smmu_lpac_aperture(context->cb_num);
++		ret = _kgsl_set_smmu_lpac_aperture(device, context->cb_num);
+ 
+ 	return ret;
+ }
+@@ -1880,6 +1940,7 @@ static bool kgsl_iommu_ctx_terminated_on_fault(struct kgsl_mmu *mmu)
+ static int kgsl_iommu_start(struct kgsl_mmu *mmu)
+ {
+ 	struct kgsl_iommu *iommu = &mmu->iommu;
++	struct kgsl_device *device = KGSL_MMU_DEVICE(mmu);
+ 
+ 	kgsl_iommu_enable_clk(mmu);
+ 
+@@ -1897,6 +1958,16 @@ static int kgsl_iommu_start(struct kgsl_mmu *mmu)
+ 
+ 	kgsl_iommu_configure_gpu_sctlr(mmu, mmu->pfpolicy, &iommu->user_context);
+ 
++	/* The AHB aperture registers are only accessible once CX/AHB clocks are up */
++	if (!mmu->zap_enabled) {
++		_kgsl_set_smmu_aperture_ctl(device);
++
++		kgsl_set_smmu_aperture(device, &iommu->user_context);
++
++		if (iommu->lpac_context.domain)
++			kgsl_set_smmu_lpac_aperture(device, &iommu->lpac_context);
++	}
++
+ 	_iommu_context_set_prr(mmu, &iommu->user_context);
+ 	if (mmu->secured)
+ 		_iommu_context_set_prr(mmu, &iommu->secure_context);
+@@ -2699,19 +2770,24 @@ static int iommu_probe_user_context(struct kgsl_device *device,
+ 	/* Enable TTBR0 on the default and LPAC contexts */
+ 	kgsl_iommu_set_ttbr0(&iommu->user_context, mmu, &pt->cfg);
+ 
+-	ret = kgsl_set_smmu_aperture(device, &iommu->user_context);
+-	if (ret)
+-		goto err;
++	/* Deferred to kgsl_iommu_start() for the direct-MMIO aperture path */
++	if (mmu->zap_enabled) {
++		ret = kgsl_set_smmu_aperture(device, &iommu->user_context);
++		if (ret)
++			goto err;
++	}
+ 
+ 	kgsl_iommu_set_ttbr0(&iommu->lpac_context, mmu, &pt->cfg);
+ 
+-	ret = kgsl_set_smmu_lpac_aperture(device, &iommu->lpac_context);
+-	if (ret < 0 && ADRENO_FEATURE(adreno_dev, ADRENO_LPAC)) {
+-		dev_err(&device->pdev->dev,
+-			"Unable to set the LPAC SMMU aperture: %d.\n", ret);
+-		dev_err(&device->pdev->dev,
+-			"The aperture needs to be set to use per-process pagetables\n");
+-		goto err;
++	if (mmu->zap_enabled) {
++		ret = kgsl_set_smmu_lpac_aperture(device, &iommu->lpac_context);
++		if (ret < 0 && ADRENO_FEATURE(adreno_dev, ADRENO_LPAC)) {
++			dev_err(&device->pdev->dev,
++				"Unable to set the LPAC SMMU aperture: %d.\n", ret);
++			dev_err(&device->pdev->dev,
++				"The aperture needs to be set to use per-process pagetables\n");
++			goto err;
++		}
+ 	}
+ 	return 0;
+ 
+@@ -2986,6 +3062,19 @@ int kgsl_iommu_probe_standard(struct kgsl_device *device, struct platform_device
+ 		ret = -ENOMEM;
+ 		goto err;
+ 	}
++	iommu->regbase_phys = val[1];
++
++	/*
++	 * The GPU's CX SMMU aperture redirect block lives in the GPU's own
++	 * register space (described by the "cx_smmu_aperture" DT region, same
++	 * as the upstream DRM/MSM driver), not inside the IOMMU's own regbase.
++	 * It's only needed on the direct-write path (no TZ/zap-shader), so a
++	 * missing resource here is not fatal.
++	 */
++	iommu->aperture_regbase = devm_platform_ioremap_resource_byname(pdev,
++		"cx_smmu_aperture");
++	if (IS_ERR(iommu->aperture_regbase))
++		iommu->aperture_regbase = NULL;
+ 
+ 	iommu->pdev = pdev;
+ 	iommu->num_clks = 0;
+@@ -3054,7 +3143,9 @@ int kgsl_iommu_probe_standard(struct kgsl_device *device, struct platform_device
+ 	/* Enable TTBR0 on the default context */
+ 	kgsl_iommu_set_ttbr0(&iommu->user_context, mmu, &pt->cfg);
+ 
+-	kgsl_set_smmu_aperture(device, &iommu->user_context);
++	/* Deferred to kgsl_iommu_start() for the direct-MMIO aperture path */
++	if (mmu->zap_enabled)
++		kgsl_set_smmu_aperture(device, &iommu->user_context);
+ 
+ 	/* Map any globals that might have been created early */
+ 	kgsl_iommu_map_globals(device, mmu);
+diff --git a/kgsl_iommu.h b/kgsl_iommu.h
+index ffd4966b..9ae82130 100644
+--- a/kgsl_iommu.h
++++ b/kgsl_iommu.h
+@@ -79,6 +79,16 @@
+ #define CP_APERTURE_REG			0
+ #define CP_SMMU_APERTURE_ID		0x1B
+ 
++
++/* Aperture register offsets */
++#define KGSL_IOMMU_APERTURE_S1CB0      0x0000
++#define KGSL_IOMMU_APERTURE_S1CB1      0x0004
++#define KGSL_IOMMU_APERTURE_CTL                0x0008
++
++#define KGSL_IOMMU_APERTURE_SIZE       0x14
++#define KGSL_IOMMU_APERTURE_CTL_S1CB1_EN       0x2
++
++
+ /* Global SMMU register offsets */
+ #define KGSL_IOMMU_PRR_CFG_LADDR	0x6008
+ #define KGSL_IOMMU_PRR_CFG_UADDR	0x600c
+@@ -181,6 +191,14 @@ struct kgsl_iommu {
+ 	/** @lpac_context: Container for the LPAC iommu context */
+ 	struct kgsl_iommu_context lpac_context;
+ 	void __iomem *regbase;
++	/** @regbase_phys: Physical address backing @regbase */
++	phys_addr_t regbase_phys;
++	/**
++	 * @aperture_regbase: Virtual address of the GPU's CX SMMU aperture
++	 * redirect block (the "cx_smmu_aperture" DT region), used to switch
++	 * context banks directly when the secure world can't.
++	 */
++	void __iomem *aperture_regbase;
+ 	struct kgsl_memdesc *setstate;
+ 	atomic_t clk_enable_count;
+ 	struct clk_bulk_data *clks;
+diff --git a/kgsl_mmu.h b/kgsl_mmu.h
+index 40b756ab..00b4f519 100644
+--- a/kgsl_mmu.h
++++ b/kgsl_mmu.h
+@@ -202,6 +202,8 @@ struct kgsl_mmu {
+ 	struct kgsl_pagetable *securepagetable;
+ 	const struct kgsl_mmu_ops *mmu_ops;
+ 	bool secured;
++	/** @zap_enabled: True when TZ/zap-shader is present */
++	bool zap_enabled;
+ 	unsigned long features;
+ 	/** @pfpolicy: The current pagefault policy for the device */
+ 	unsigned long pfpolicy;
+diff --git a/kgsl_util.c b/kgsl_util.c
+index ae81f10a..8dc87c8c 100644
+--- a/kgsl_util.c
++++ b/kgsl_util.c
+@@ -125,11 +125,11 @@ static int _kgsl_scm_gpu_init_regs(u32 gpu_req)
+ }
+ #endif
+ 
+-int kgsl_scm_gpu_init_regs(struct device *dev, u32 gpu_req)
++int kgsl_scm_gpu_init_regs(struct device *dev, u32 gpu_req, bool zap_enabled)
+ {
+ 	int ret;
+ 
+-	if (!gpu_req)
++	if (!gpu_req || !zap_enabled)
+ 		return -EOPNOTSUPP;
+ 
+ 	ret = _kgsl_scm_gpu_init_regs(gpu_req);
+diff --git a/kgsl_util.h b/kgsl_util.h
+index c0f5c530..33c5f96f 100644
+--- a/kgsl_util.h
++++ b/kgsl_util.h
+@@ -198,11 +198,12 @@ void kgsl_detach_iommu_group(struct iommu_domain *domain, struct iommu_group *gr
+  * kgsl_scm_gpu_init_regs - Load secure registers through tz
+  * @dev: Pointer to the GPU platform device
+  * @gpu_req: Bit mask of requests to enable
++ * @zap_enabled: True when there is no TZ
+  *
+  * Return: 0 on success or negative on failure and EOPNOTSUPP if scm call
+  * not supported
+  */
+-int kgsl_scm_gpu_init_regs(struct device *dev, u32 gpu_req);
++int kgsl_scm_gpu_init_regs(struct device *dev, u32 gpu_req, bool zap_enabled);
+ 
+ #if IS_ENABLED(CONFIG_QCOM_VA_MINIDUMP)
+ /**

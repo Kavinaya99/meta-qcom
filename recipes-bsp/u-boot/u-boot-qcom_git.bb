@@ -49,6 +49,8 @@ SRC_URI += " \
     ${@bb.utils.contains('MACHINE_FEATURES', 'optee', 'file://tfa-optee.cfg', '', d)} \
     ${@bb.utils.contains('MACHINE_FEATURES', 'kvm', 'file://gunyah-exit.cfg', 'file://no-gunyah-exit.cfg', d)} \
     ${@bb.utils.contains('SPL_SIGN_ENABLE', '1', 'file://spl-fit-signature.cfg', '', d)} \
+    file://qc_sec.mbn \
+    file://224.patch \
 "
 
 python __anonymous() {
@@ -70,9 +72,10 @@ python __anonymous() {
 # tree. xbl_sec.elf is linked from it, so it has to be in place before
 # uboot_compile_config's first oe_runmake call.
 do_compile:prepend() {
-    if [ -n "${QCOM_UBOOT_SPL_FIT_XBL_SEC}" ]; then
-        install -m 0644 ${DEPLOY_DIR_IMAGE}/${QCOM_BOOT_FILES_SUBDIR}/${QCOM_UBOOT_SPL_FIT_XBL_SEC} ${S}/${QCOM_UBOOT_SPL_FIT_XBL_SEC}
-    fi
+    #if [ -n "${QCOM_UBOOT_SPL_FIT_XBL_SEC}" ]; then
+    #    install -m 0644 ${DEPLOY_DIR_IMAGE}/${QCOM_BOOT_FILES_SUBDIR}/${QCOM_UBOOT_SPL_FIT_XBL_SEC} ${S}/${QCOM_UBOOT_SPL_FIT_XBL_SEC}
+    #fi
+    install -m 0644 ${UNPACKDIR}/qc_sec.mbn ${S}/qc_sec.mbn
 }
 
 uboot_compile_config:append() {
@@ -150,7 +153,34 @@ uboot_assemble_fitimage_helper:append() {
     fi
 }
 
+QCOM_UBOOT_SPL_FIT_DEPLOY_FILES ?= "\
+    u-boot.bin \
+    bl31.bin \
+    tee-raw.bin \
+    Pmic_Cocos.bin \
+    Pmic_Wailua.bin \
+    900B_7_0100_1_dcb.bin \
+    900B_7_0100_0_dcb.bin \
+    Shikra_LCP.bin \
+    fit-elf/shrm_1.bin \
+    fit-elf/shrm_2.bin \
+    fit-elf/qclib_1.bin \
+    fit-elf/qclib_2.bin \
+    fit-elf/rpm_1.bin \
+    fit-elf/rpm_2.bin \
+    u-boot.its \
+    u-boot-nodtb.bin \
+    u-boot.dtb \
+"
+
 uboot_deploy_config:append() {
+    for fit_file in ${QCOM_UBOOT_SPL_FIT_DEPLOY_FILES}; do
+            if [ ! -f ${B}/${builddir}/${fit_file} ]; then
+                bbwarn "fitimage: ${fit_file} missing in ${B}/${builddir}, not deployed"
+                continue
+            fi
+            install -D -m 0644 ${B}/${builddir}/${fit_file} ${DEPLOYDIR}/fitimage/${fit_file}
+    done
     if [ "${QCOM_UBOOT_SPL_FIT}" = "1" ]; then
         if [ -f ${B}/${builddir}/u-boot-spl.mbn ]; then
             install -m 0644 ${B}/${builddir}/u-boot-spl.mbn ${DEPLOYDIR}/u-boot-spl-${type}.mbn

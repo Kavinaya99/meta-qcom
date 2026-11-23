@@ -9,11 +9,22 @@ DEPENDS += "${@bb.utils.contains('QCOM_UBOOT_SPL_FIT', '1', '', 'u-boot-qcom', d
 
 DEPENDS += "${@'swiv-build-utility-native' if d.getVar('QCOM_FW_SWIV_PLATFORM') else ''}"
 
-PV = "2.15.0-qcom-20261117+git"
+PV = "2.15.0-qcom-20261124+git"
+FILESEXTRAPATHS:prepend := "${THISDIR}/:"
 
-SRC_TAG = "tag=qcom-next-2.15-20261117"
+SRC_TAG = "tag=qcom-next-2.15-20261124"
 SRC_URI = "git://github.com/qualcomm-linux/trusted-firmware-a.git;protocol=https;name=tfa;nobranch=1;${SRC_TAG}"
-SRCREV_tfa = "87eef83095db7c2aabb4265e591209f8b3d17c3a"
+SRCREV_tfa = "69bd663728097cb7e841d52bb3c8ab0ca94bde9d"
+
+SRC_URI += " \
+    file://134.patch \
+    file://136.patch \
+    file://140.patch \
+    file://tfa_modem_policy_wa.patch \
+"
+
+ERROR_QA:remove = "patch-fuzz"
+TFA_DEBUG = "1"
 
 LIC_FILES_CHKSUM += "file://docs/license.rst;md5=6ed7bace7b0bc63021c6eba7b524039e"
 
