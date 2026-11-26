@@ -47,6 +47,9 @@ FIT_DTB_COMPATIBLE[qcom_hamoa-evk] = \
 FIT_DTB_COMPATIBLE[qcom_hamoa-evk-el2kvm] = \
     "hamoa-iot-evk hamoa-iot-evk-camera-imx577 x1-el2"
 
+# ---------- hawi ----------
+FIT_DTB_COMPATIBLE[qcom_hawi-mtp] = "hawi-mtp"
+
 # ---------- purwa ----------
 FIT_DTB_COMPATIBLE[qcom_purwa-evk-el2kvm] = "purwa-iot-evk x1-el2"
 

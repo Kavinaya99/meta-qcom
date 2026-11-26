@@ -1,0 +1,63 @@
+From 7de86ffaff9a631747f5b9e63b0c053e3703e14f Mon Sep 17 00:00:00 2001
+From: Mukesh Ojha <mukesh.ojha@oss.qualcomm.com>
+Date: Wed, 25 Nov 2026 22:16:14 +0530
+Subject: [PATCH] DNM: WA to boot on hawi v2 device
+
+Upstream-Status: Pending
+Signed-off-by: Mukesh Ojha <mukesh.ojha@oss.qualcomm.com>
+---
+ drivers/pmdomain/qcom/rpmhpd.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pmdomain/qcom/rpmhpd.c b/drivers/pmdomain/qcom/rpmhpd.c
+index 28cc8825eee4..432f96d79e73 100644
+--- a/drivers/pmdomain/qcom/rpmhpd.c
++++ b/drivers/pmdomain/qcom/rpmhpd.c
+@@ -972,21 +972,25 @@ static int rpmhpd_aggregate_corner(struct rpmhpd *pd, unsigned int corner)
+ 	unsigned int peer_enabled_corner;
+ 
+ 	if (pd->state_synced) {
++		pr_err("%s: state_synced:\n", __func__);
+ 		to_active_sleep(pd, corner, &this_active_corner, &this_sleep_corner);
+ 	} else {
+ 		/* Clamp to highest corner if sync_state hasn't happened */
++		pr_err("%s: else:state_synced:\n", __func__);
+ 		this_active_corner = pd->level_count - 1;
+ 		this_sleep_corner = pd->level_count - 1;
+ 	}
+ 
+ 	if (peer && peer->enabled) {
++		pr_err("%s: peer::\n", __func__);
+ 		peer_enabled_corner = max(peer->corner, peer->enable_corner);
+ 		to_active_sleep(peer, peer_enabled_corner, &peer_active_corner,
+ 				&peer_sleep_corner);
+ 	}
+ 
+ 	active_corner = max(this_active_corner, peer_active_corner);
+-
++	active_corner = corner;
++	pr_err("%s: state: %d %d %d %d\n", __func__, active_corner, pd->active_corner, peer_active_corner, pd->level_count);
+ 	ret = rpmhpd_send_corner(pd, RPMH_ACTIVE_ONLY_STATE, active_corner,
+ 				 active_corner > pd->active_corner);
+ 	if (ret)
+@@ -1074,6 +1078,8 @@ static int rpmhpd_set_performance_state(struct generic_pm_domain *domain,
+ 			return ret;
+ 	}
+ 
++	pr_err("%s: ARC hlvl=%2d --> vlvl=%4u\n", pd->res_name, i,
++			 pd->level[i]);
+ 	pd->corner = i;
+ 
+ 	return 0;
+@@ -1120,7 +1126,7 @@ static int rpmhpd_update_level_mapping(struct rpmhpd *rpmhpd)
+ 			rpmhpd->level_count = i;
+ 			break;
+ 		}
+-		pr_debug("%s: ARC hlvl=%2d --> vlvl=%4u\n", rpmhpd->res_name, i,
++		pr_err("%s: ARC hlvl=%2d --> vlvl=%4u\n", rpmhpd->res_name, i,
+ 			 rpmhpd->level[i]);
+ 	}
+ 
+-- 
+2.55.0
+
