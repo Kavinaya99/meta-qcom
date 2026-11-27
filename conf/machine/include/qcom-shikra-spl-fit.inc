@@ -32,6 +32,7 @@ QCOM_UBOOT_SPL_FIT_SEGMENTS ?= "fit-elf"
 UBOOT_FIT_LOADABLES ?= "\
     pmic_cocos pmic_wailua dcb_lp4 dcb_lp5 ecc \
     shrm_1 shrm_2 qclib_1 qclib_2 rpm_1 rpm_2 \
+    qcramdump_1 qcramdump_2 \
 "
 
 UBOOT_FIT_LOADABLE_DESCRIPTION[pmic_cocos] ?= "PMIC Cocos Config"
@@ -67,8 +68,10 @@ UBOOT_FIT_LOADABLE_DESCRIPTION[qclib_1] ?= "QcLib segment 1"
 UBOOT_FIT_LOADABLE_DESCRIPTION[qclib_2] ?= "QcLib segment 2"
 UBOOT_FIT_LOADABLE_DESCRIPTION[rpm_1] ?= "RPM segment 1"
 UBOOT_FIT_LOADABLE_DESCRIPTION[rpm_2] ?= "RPM segment 2"
+UBOOT_FIT_LOADABLE_DESCRIPTION[qcramdump_1] ?= "QcRamDump segment 1"
+UBOOT_FIT_LOADABLE_DESCRIPTION[qcramdump_2] ?= "QcRamDump segment 2"
 
-UBOOT_FIT_CONF_LOADABLES ?= "rpm_1 rpm_2"
+UBOOT_FIT_CONF_LOADABLES ?= "rpm_1 rpm_2 qcramdump_1 qcramdump_2"
 
 # The SPL picks the configuration by description, "pre-ddr" ahead of DDR
 # init and "post-ddr" (set in qcom-uboot-spl-fit.inc) after it.

@@ -1,0 +1,336 @@
+From 9940e091c383f594314f6b4c54d3d0c23e32c2a1 Mon Sep 17 00:00:00 2001
+From: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Date: Wed, 18 Nov 2026 18:38:25 +0530
+Subject: [PATCH 1/4] FROMLIST: firmware: qcom: scm: Add
+ qcom_scm_gpu_init_regs_is_available()
+
+The Adreno driver asks the secure world to initialize some GPU registers
+through qcom_scm_gpu_init_regs(), and fails to power up the GPU if this
+call fails.
+
+Not every secure world implements this call. When it is missing, the
+call fails in the same way as a real error, so the driver cannot tell
+the two cases apart.
+
+Add qcom_scm_gpu_init_regs_is_available(), similar to
+qcom_scm_set_gpu_smmu_aperture_is_available(), so that the driver can
+check whether the secure world supports the call before making it.
+
+Upstream-Status: Pending
+Signed-off-by: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Link: https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-1-e99cdbf3121d@oss.qualcomm.com
+Upstream-Status: Submitted [https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-1-e99cdbf3121d@oss.qualcomm.com]
+Signed-off-by: Lokesh Kumar <lok@qti.qualcomm.com>
+---
+ drivers/firmware/qcom/qcom_scm.c       | 7 +++++++
+ include/linux/firmware/qcom/qcom_scm.h | 1 +
+ 2 files changed, 8 insertions(+)
+
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index 8d21a03c15da3..e515465a5b0a7 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -1995,6 +1995,13 @@ int qcom_scm_lmh_dcvsh(u32 payload_fn, u32 payload_reg, u32 payload_val,
+ }
+ EXPORT_SYMBOL_GPL(qcom_scm_lmh_dcvsh);
+ 
++bool qcom_scm_gpu_init_regs_is_available(void)
++{
++	return __qcom_scm_is_call_available(__scm->dev, QCOM_SCM_SVC_GPU,
++					    QCOM_SCM_SVC_GPU_INIT_REGS);
++}
++EXPORT_SYMBOL_GPL(qcom_scm_gpu_init_regs_is_available);
++
+ int qcom_scm_gpu_init_regs(u32 gpu_req)
+ {
+ 	struct qcom_scm_desc desc = {
+diff --git a/include/linux/firmware/qcom/qcom_scm.h b/include/linux/firmware/qcom/qcom_scm.h
+index e505e9b6f49e9..9284fa435f9b4 100644
+--- a/include/linux/firmware/qcom/qcom_scm.h
++++ b/include/linux/firmware/qcom/qcom_scm.h
+@@ -170,6 +170,7 @@ bool qcom_scm_lmh_dcvsh_available(void);
+  */
+ #define QCOM_SCM_GPU_TSENSE_EN_REQ BIT(3)
+ 
++bool qcom_scm_gpu_init_regs_is_available(void);
+ int qcom_scm_gpu_init_regs(u32 gpu_req);
+ 
+ int qcom_scm_shm_bridge_create(u64 pfn_and_ns_perm_flags,
+
+From 7bd9a3a34cc624f01ace13df4abba74c10dbbbd4 Mon Sep 17 00:00:00 2001
+From: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Date: Wed, 18 Nov 2026 18:38:27 +0530
+Subject: [PATCH 2/4] FROMLIST: dt-bindings: display/msm: gpu: Document the CX
+ SMMU aperture region
+
+The CX SMMU aperture is a register block in the GPU. It holds the
+location of the GPU SMMU context banks that the CP uses for pagetable
+switching.
+
+On some GPUs the block lies outside the existing GPU register regions.
+Add it as an optional aperture region, so the driver can program it on
+platforms where the secure world does not.
+
+Signed-off-by: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Link: https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-3-e99cdbf3121d@oss.qualcomm.com
+Upstream-Status: Submitted [https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-3-e99cdbf3121d@oss.qualcomm.com]
+Signed-off-by: Lokesh Kumar <lok@qti.qualcomm.com>
+---
+ Documentation/devicetree/bindings/display/msm/gpu.yaml | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/display/msm/gpu.yaml b/Documentation/devicetree/bindings/display/msm/gpu.yaml
+index d0f5cff3286ef..d5bb5865d54fb 100644
+--- a/Documentation/devicetree/bindings/display/msm/gpu.yaml
++++ b/Documentation/devicetree/bindings/display/msm/gpu.yaml
+@@ -54,7 +54,7 @@ properties:
+ 
+   reg:
+     minItems: 1
+-    maxItems: 3
++    maxItems: 4
+ 
+   reg-names:
+     minItems: 1
+@@ -62,6 +62,7 @@ properties:
+       - const: kgsl_3d0_reg_memory
+       - const: cx_mem
+       - const: cx_dbgc
++      - const: aperture
+ 
+   interrupts:
+     maxItems: 1
+
+From 486e12f128325093897bede0e7883b29d88d92a0 Mon Sep 17 00:00:00 2001
+From: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Date: Thu, 19 Nov 2026 00:00:00 +0530
+Subject: [PATCH 3/4] FROMLIST: drm/msm/adreno: Program the SMMU aperture when
+ the secure world can't
+
+[ upstream commit eae75ed63a1c ("drm/msm/adreno: Program the SMMU aperture when the secure world can't") ]
+
+The CP switches pagetables by writing the GPU SMMU context bank
+registers itself. It reaches them through the CX SMMU aperture, a
+register block in the GPU, which has to point at context bank 0. The
+secure world normally owns this block and programs it when
+adreno_hw_init() calls qcom_scm_set_gpu_smmu_aperture(). Shikra's
+secure world (OP-TEE, no QTEE) doesn't implement that SCM call, so
+nothing programs the aperture and the CP can't switch pagetables.
+
+This is a backport of upstream commit eae75ed63a1c, scoped down to
+Shikra/A702 only:
+
+ - A753/Nord and the GMU-resume SCM-availability changes from the same
+   upstream series are left out: Nord isn't supported on this 6.18
+   recipe, and the GMU-resume piece only matters for A750/A753/A8xx.
+
+ - This 6.18 tree doesn't have a7xx_catalog.c yet; A702 (chip_ids
+   0x07000200/0x07000400) is still catalogued inside a6xx_catalog.c's
+   a7xx_gpus[] array, so a702_aperture_reglist is added and wired up
+   there instead of in a separate file.
+
+ - The aperture register values (GC aperture at offset 0x00 pointing
+   at context bank 0, CTRL at offset 0x08 enabling only the GC
+   aperture) are the same ones already validated for this GPU by the
+   downstream KGSL driver's a704_smmu_aperture_regs
+   (recipes-graphics/kgsl-dlkm/kgsl-dlkm/0002-kgsl-aperture-config.patch),
+   not re-derived.
+
+Replaces the previously hand-ported 0001-PENDING-firmware-qcom-drm-msm
+patch with an actual backport of the upstream fix. This patch only
+touches drm/msm; it doesn't add the "aperture" reg region to
+shikra.dtsi, so it builds clean but stays a no-op until a devicetree
+change adds that region.
+
+Link: https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-4-e99cdbf3121d@oss.qualcomm.com
+Signed-off-by: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Signed-off-by: Lokesh Kumar <lok@qti.qualcomm.com>
+Upstream-Status: Submitted [https://lore.kernel.org/r/20261118-adreno-scm-fallback-v1-4-e99cdbf3121d@oss.qualcomm.com]
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c |  9 ++++++
+ drivers/gpu/drm/msm/adreno/adreno_gpu.c   | 37 +++++++++++++++++++++++
+ drivers/gpu/drm/msm/adreno/adreno_gpu.h   | 21 +++++++++++++
+ 3 files changed, 67 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index b4f9fa45e372f..159a71930cd2d 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -1431,6 +1431,14 @@ static const u32 a750_ifpc_reglist_regs[] = {
+ 
+ DECLARE_ADRENO_REGLIST_LIST(a750_ifpc_reglist);
+ 
++/* GPU aperture: GC to CB0, other apertures disabled */
++static const struct adreno_reglist a702_aperture_reglist_regs[] = {
++	{ 0x00, 0x000a8000 }, /* GC: CB0 */
++	{ 0x08, 0x00000000 }, /* CTRL: GC only */
++};
++
++DECLARE_ADRENO_REGPAIR_LIST(a702_aperture_reglist);
++
+ static const struct adreno_info a7xx_gpus[] = {
+ 	{
+ 		.chip_ids = ADRENO_CHIP_IDS(0x07000200, 0x07000400),
+@@ -1443,6 +1451,7 @@ static const struct adreno_info a7xx_gpus[] = {
+ 		.quirks = ADRENO_QUIRK_HAS_HW_APRIV,
+ 		.init = a6xx_gpu_init,
+ 		.zapfw = "a702_zap.mbn",
++		.aperture_reglist = &a702_aperture_reglist,
+ 		.a6xx = &(const struct a6xx_info) {
+ 			.hwcg = a702_hwcg,
+ 			.protect = &a650_protect,
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.c b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+index 673de5e64c15a..cf05131bbda34 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+@@ -655,6 +655,13 @@ int adreno_hw_init(struct msm_gpu *gpu)
+ 		ret = qcom_scm_set_gpu_smmu_aperture(0);
+ 		if (ret)
+ 			DRM_DEV_ERROR(gpu->dev->dev, "unable to set SMMU aperture: %d\n", ret);
++	} else if (adreno_gpu->aperture) {
++		const struct adreno_regpair_list *list =
++			adreno_gpu->info->aperture_reglist;
++
++		for (int i = 0; i < list->count; i++)
++			writel(list->regs[i].value,
++			       adreno_gpu->aperture + list->regs[i].offset);
+ 	}
+ 
+ 	for (int i = 0; i < gpu->nr_rings; i++) {
+@@ -1174,6 +1181,32 @@ int adreno_read_speedbin(struct device *dev, u32 *speedbin)
+ 	return nvmem_cell_read_variable_le_u32(dev, "speed_bin", speedbin);
+ }
+ 
++/*
++ * Map the GPU aperture, so that adreno_hw_init() can program it when
++ * the secure world does not.
++ */
++static int adreno_gpu_aperture_init(struct platform_device *pdev,
++				    struct adreno_gpu *adreno_gpu)
++{
++	struct resource *res;
++	void __iomem *base;
++
++	if (!adreno_gpu->info->aperture_reglist)
++		return 0;
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "aperture");
++	if (!res)
++		return 0;
++
++	base = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++
++	adreno_gpu->aperture = base;
++
++	return 0;
++}
++
+ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 		struct adreno_gpu *adreno_gpu,
+ 		const struct adreno_gpu_funcs *funcs, int nr_rings)
+@@ -1223,6 +1256,10 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 
+ 	adreno_gpu_config.ioname = "kgsl_3d0_reg_memory";
+ 
++	ret = adreno_gpu_aperture_init(pdev, adreno_gpu);
++	if (ret)
++		return ret;
++
+ 	adreno_gpu_config.nr_rings = nr_rings;
+ 
+ 	ret = adreno_get_pwrlevels(dev, gpu);
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.h b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+index 25ee6b277fe2d..5a056f5659404 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.h
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+@@ -81,6 +81,19 @@ struct adreno_reglist {
+ 	u32 value;
+ };
+ 
++struct adreno_regpair_list {
++	/** @regs: List of register offset and value pairs **/
++	const struct adreno_reglist *regs;
++	/** @count: Number of registers in the list **/
++	u32 count;
++};
++
++#define DECLARE_ADRENO_REGPAIR_LIST(name)	\
++static const struct adreno_regpair_list name = {		\
++	.regs = name ## _regs,				\
++	.count = ARRAY_SIZE(name ## _regs),		\
++}
++
+ struct adreno_speedbin {
+ 	uint16_t fuse;
+ 	uint16_t speedbin;
+@@ -115,6 +128,11 @@ struct adreno_info {
+ 	 */
+ 	struct adreno_speedbin *speedbins;
+ 	u64 preempt_record_size;
++	/**
++	 * @aperture_reglist: Optional GPU aperture register values. Used if
++	 * the secure world does not program the aperture.
++	 */
++	const struct adreno_regpair_list *aperture_reglist;
+ };
+ 
+ #define ADRENO_CHIP_IDS(tbl...) (uint32_t[]) { tbl, 0 }
+@@ -224,6 +242,9 @@ struct adreno_gpu {
+ 
+ 	bool has_ray_tracing;
+ 
++	/* GPU aperture, if the driver may need to program it */
++	void __iomem *aperture;
++
+ 	u64 uche_trap_base;
+ };
+ #define to_adreno_gpu(x) container_of(x, struct adreno_gpu, base)
+
+From d914e6ff91e4489ca2f4c5a81cb17d6d79788e75 Mon Sep 17 00:00:00 2001
+From: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Date: Fri, 20 Nov 2026 18:58:59 +0530
+Subject: [PATCH 4/4] FROMLIST: arm64: dts: qcom: shikra: Describe the GPU CX
+ SMMU aperture region
+
+The drm/msm aperture programming added in
+0003-PENDING-drm-msm-adreno-Program-the-SMMU-aperture-sh.patch only
+runs if an "aperture" reg region is present, per the binding added in
+0002-PENDING-dt-bindings-display-msm-gpu-Document-the-CX.patch.
+Without it, adreno_hw_init() has nothing to program and the CP can't
+switch pagetables on Shikra's OP-TEE secure world, which doesn't
+implement qcom_scm_set_gpu_smmu_aperture().
+
+Add the region, right after cx_dbgc, at the physical address the
+downstream KGSL driver already uses for the same block
+(recipes-graphics/kgsl-dlkm's "cx_smmu_aperture" region) -- it's the
+same hardware block, just under the reg-name drm/msm's binding uses.
+
+Signed-off-by: Puranam V G Tejaswi <puranam.tejaswi@oss.qualcomm.com>
+Link: https://lore.kernel.org/all/20261118-adreno-scm-fallback-v1-6-e99cdbf3121d@oss.qualcomm.com/
+Signed-off-by: Lokesh Kumar <lok@qti.qualcomm.com>
+Upstream-Status: Submitted [https://lore.kernel.org/all/20261118-adreno-scm-fallback-v1-6-e99cdbf3121d@oss.qualcomm.com/]
+---
+ arch/arm64/boot/dts/qcom/shikra.dtsi | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/shikra.dtsi b/arch/arm64/boot/dts/qcom/shikra.dtsi
+index 1bb3dcf05dff8..e24eeb4e2d9a0 100644
+--- a/arch/arm64/boot/dts/qcom/shikra.dtsi
++++ b/arch/arm64/boot/dts/qcom/shikra.dtsi
+@@ -3185,10 +3185,12 @@
+ 			compatible = "qcom,adreno-07000400", "qcom,adreno";
+ 			reg = <0x0 0x05900000 0x0 0x40000>,
+ 			      <0x0 0x0599e000 0x0 0x1000>,
+-			      <0x0 0x05961000 0x0 0x800>;
++			      <0x0 0x05961000 0x0 0x800>,
++			      <0x0 0x05960000 0x0 0x1000>;
+ 			reg-names = "kgsl_3d0_reg_memory",
+ 				    "cx_mem",
+-				    "cx_dbgc";
++				    "cx_dbgc",
++				    "aperture";
+ 
+ 			interrupts = <GIC_SPI 177 IRQ_TYPE_LEVEL_HIGH 0>;
+ 

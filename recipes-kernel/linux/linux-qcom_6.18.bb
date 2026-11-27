@@ -20,8 +20,8 @@ KERNEL_PAHOLE ?= '${@bb.utils.contains("BBFILE_COLLECTIONS", "openembedded-layer
 do_configure[depends] += '${@oe.utils.vartrue("KERNEL_PAHOLE", "pahole-native:do_populate_sysroot", "", d)}'
 EXTRA_OEMAKE += '${@oe.utils.vartrue("KERNEL_PAHOLE", "", "PAHOLE=false", d)}'
 
-# tag:qcom-6.18.y-20261125
-SRCREV ?= "e1e59eaf3d217b54b40ea7a02aa4be65f9f13cd8"
+# tag:qcom-6.18.y-20261118
+SRCREV ?= "b4d52c69193146297c90293ede839a5b308f831f"
 
 SRCBRANCH ?= "nobranch=1"
 SRCBRANCH:class-devupstream ?= "branch=qcom-6.18.y"
@@ -33,11 +33,6 @@ SRC_URI = " \
     git://github.com/qualcomm-linux/kernel.git;${SRCBRANCH};protocol=https \
     file://0001-tools-use-basename-to-identify-file-in-gen-mach-type.patch \
     file://1260.patch \
-    file://0001-PENDING-firmware-qcom-scm-Add-qcom_scm_gpu_init_regs.patch \
-    file://0002-PENDING-drm-msm-a7xx-Don-t-fail-if-the-GPU-init-regs.patch \
-    file://0003-PENDING-dt-bindings-display-msm-gpu-Document-the-CX-.patch \
-    file://0004-PENDING-drm-msm-adreno-Program-the-SMMU-aperture-whe.patch \
-    file://0005-PENDING-arm64-dts-qcom-shikra-Describe-the-GPU-CX-SM.patch \
     file://0001-soc-qcom-ice-Add-TZ-agnostic-re-direction-functions.patch \
     file://0002-firmware-qcom_scm-Transition-to-ICE-TZ-agnostic-oper.patch \
     file://0003-firmware-qcom-Add-a-TEE-bus-based-ICE-back-end.patch \
@@ -46,6 +41,7 @@ SRC_URI = " \
     file://0006-firmware-qcom-scm-Drop-exported-ICE-wrapper-function.patch \
     file://1484.patch \
     file://1506.patch \
+    file://1504.patch \
 "
 
 # Additional kernel configs.
